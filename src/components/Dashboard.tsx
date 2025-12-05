@@ -3,59 +3,49 @@ import { Sidebar } from './Sidebar';
 import { AccountSelector } from './AccountSelector';
 import { OverviewView } from './views/OverviewView';
 import { ProfitLossView } from './views/ProfitLossView';
-import { AdsView } from './views/AdsView';
-import { PostsView } from './views/PostsView';
-import { EngagementView } from './views/EngagementView';
-import { AffiliatesView } from './views/AffiliatesView';
-import { SalesView } from './views/SalesView';
+import { OrdersView } from './views/OrdersView';
+import { ProductsView } from './views/ProductsView';
 import WelcomeScreen from './WelcomeScreen';
-import { Account, supabase } from '../lib/supabase';
+import { Account } from '../lib/supabase';
 
-const API_BASE_URL = import.meta.env.VITE_TIKTOK_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
-  const [checkingTikTok, setCheckingTikTok] = useState(true);
+  const [checkingShop, setCheckingShop] = useState(true);
 
-  // Check if TikTok is connected when account changes
+  // Check if TikTok Shop is connected when account changes
   useEffect(() => {
     if (selectedAccount) {
-      checkTikTokConnection();
+      checkShopConnection();
     }
   }, [selectedAccount]);
 
-  const checkTikTokConnection = async () => {
+  const checkShopConnection = async () => {
     if (!selectedAccount) return;
 
     try {
-      setCheckingTikTok(true);
+      setCheckingShop(true);
 
-      // Check if TikTok is connected
-      const response = await fetch(`${API_BASE_URL}/api/tiktok/auth/status/${selectedAccount.id}`);
+      // Check if TikTok Shop is connected
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/status/${selectedAccount.id}`);
       const data = await response.json();
 
       if (!data.connected) {
         // Not connected, show welcome screen
         setShowWelcome(true);
       } else {
-        // Connected, check if we have any synced data
-        const { data: userData } = await supabase
-          .from('tiktok_user_info')
-          .select('id')
-          .eq('account_id', selectedAccount.id)
-          .single();
-
-        // Show welcome if no data synced yet
-        setShowWelcome(!userData);
+        // Connected, hide welcome screen
+        setShowWelcome(false);
       }
     } catch (error) {
-      console.error('Error checking TikTok connection:', error);
+      console.error('Error checking TikTok Shop connection:', error);
       // On error, show welcome screen to be safe
       setShowWelcome(true);
     } finally {
-      setCheckingTikTok(false);
+      setCheckingShop(false);
     }
   };
 
@@ -71,13 +61,13 @@ export function Dashboard() {
       );
     }
 
-    // Show welcome screen if TikTok not connected or no data
-    if (showWelcome && !checkingTikTok) {
+    // Show welcome screen if TikTok Shop not connected
+    if (showWelcome && !checkingShop) {
       return <WelcomeScreen accountId={selectedAccount.id} accountName={selectedAccount.name} />;
     }
 
     // Show loading while checking
-    if (checkingTikTok) {
+    if (checkingShop) {
       return (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
@@ -88,25 +78,19 @@ export function Dashboard() {
     switch (activeTab) {
       case 'overview':
         return <OverviewView account={selectedAccount} />;
+      case 'orders':
+        return <OrdersView account={selectedAccount} />;
+      case 'products':
+        return <ProductsView account={selectedAccount} />;
       case 'profit-loss':
         return <ProfitLossView account={selectedAccount} />;
-      case 'ads':
-        return <AdsView account={selectedAccount} />;
-      case 'posts':
-        return <PostsView account={selectedAccount} />;
-      case 'engagement':
-        return <EngagementView account={selectedAccount} />;
-      case 'affiliates':
-        return <AffiliatesView account={selectedAccount} />;
-      case 'sales':
-        return <SalesView account={selectedAccount} />;
       default:
         return <OverviewView account={selectedAccount} />;
     }
   };
 
   // If showing welcome screen, render it full screen
-  if (selectedAccount && showWelcome && !checkingTikTok) {
+  if (selectedAccount && showWelcome && !checkingShop) {
     return (
       <WelcomeScreen
         accountId={selectedAccount.id}
