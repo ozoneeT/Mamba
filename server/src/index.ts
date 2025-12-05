@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import tiktokShopAuthRoutes from './routes/tiktok-shop-auth.routes.js';
-import tiktokShopDataRoutes from './routes/tiktok-shop-data.routes.js';
+import tiktokShopAuthRoutes from './routes/tiktok-shop-auth.routes';
+import tiktokShopDataRoutes from './routes/tiktok-shop-data.routes';
 
 // Load environment variables
 dotenv.config();

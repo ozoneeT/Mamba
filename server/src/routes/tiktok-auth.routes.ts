@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { tiktokAPI } from '../services/tiktok-api.service.js';
-import { supabase } from '../config/supabase.js';
+import { tiktokAPI } from '../services/tiktok-api.service';
+import { supabase } from '../config/supabase';
 
 const router = Router();
 
@@ -115,7 +115,7 @@ router.get('/callback', async (req: Request, res: Response) => {
             console.log(`Auto-syncing TikTok data for account ${accountId}...`);
 
             // Import sync service dynamically to avoid circular dependencies
-            const { tiktokSyncService } = await import('../services/tiktok-sync.service.js');
+            const { tiktokSyncService } = await import('../services/tiktok-sync.service');
 
             // Sync user data and videos
             await tiktokSyncService.syncUserData(accountId);

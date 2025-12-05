@@ -1,7 +1,7 @@
 import axios from 'axios';
 import crypto from 'crypto';
-import { tiktokConfig } from '../config/tiktok.js';
-import type { TikTokAuthTokens, TikTokUserInfo, TikTokVideo } from '../types/tiktok.types.js';
+import { tiktokConfig } from '../config/tiktok';
+import type { TikTokAuthTokens, TikTokUserInfo, TikTokVideo } from '../types/tiktok.types';
 
 export class TikTokAPIService {
     /**

@@ -57,7 +57,7 @@ export function Login() {
           </div>
 
           <h1 className="text-3xl font-bold text-center text-white mb-2">
-            MAMBA TIKTOK REPORTING APP
+            Mamba TikTok Reporting App
           </h1>
           <p className="text-gray-400 text-center mb-8">
             {isSignUp ? 'Create your account' : 'Sign in to view your analytics'}

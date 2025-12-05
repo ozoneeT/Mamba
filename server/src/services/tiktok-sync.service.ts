@@ -1,6 +1,6 @@
-import { supabase } from '../config/supabase.js';
-import { tiktokAPI } from './tiktok-api.service.js';
-import type { TikTokUserInfo, TikTokVideo } from '../types/tiktok.types.js';
+import { supabase } from '../config/supabase';
+import { tiktokAPI } from './tiktok-api.service';
+import type { TikTokUserInfo, TikTokVideo } from '../types/tiktok.types';
 
 export class TikTokSyncService {
     /**

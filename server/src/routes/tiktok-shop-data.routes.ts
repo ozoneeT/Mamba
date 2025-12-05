@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { tiktokShopApi } from '../services/tiktok-shop-api.service.js';
-import { supabase } from '../config/supabase.js';
+import { tiktokShopApi } from '../services/tiktok-shop-api.service';
+import { supabase } from '../config/supabase';
 
 const router = Router();
 

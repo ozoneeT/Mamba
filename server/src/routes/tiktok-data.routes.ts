@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { tiktokSync } from '../services/tiktok-sync.service.js';
-import { supabase } from '../config/supabase.js';
+import { tiktokSync } from '../services/tiktok-sync.service';
+import { supabase } from '../config/supabase';
 
 const router = Router();
 
