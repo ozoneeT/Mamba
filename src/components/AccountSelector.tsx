@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChevronDown, Store, CheckCircle2 } from 'lucide-react';
 import { Account, supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { AddAccountModal } from './AddAccountModal';
 
 interface AccountSelectorProps {
   selectedAccount: Account | null;
@@ -58,7 +59,12 @@ export function AccountSelector({ selectedAccount, onSelectAccount }: AccountSel
   };
 
   if (accounts.length === 0) {
-    return null;
+    return (
+      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 text-center">
+        <p className="text-gray-400 mb-4">No accounts yet. Create one to get started!</p>
+        <AddAccountModal onAccountAdded={fetchAccounts} />
+      </div>
+    );
   }
 
   if (accounts.length === 1 && profile?.role !== 'admin') {
@@ -117,11 +123,10 @@ export function AccountSelector({ selectedAccount, onSelectAccount }: AccountSel
                 className="w-full p-4 flex items-center justify-between hover:bg-gray-700 transition-colors first:rounded-t-xl last:rounded-b-xl border-b border-gray-700 last:border-b-0"
               >
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${
-                    selectedAccount?.id === account.id
+                  <div className={`p-2 rounded-lg ${selectedAccount?.id === account.id
                       ? 'bg-gradient-to-r from-pink-500 to-red-500'
                       : 'bg-gray-700'
-                  }`}>
+                    }`}>
                     <Store className="w-4 h-4 text-white" />
                   </div>
                   <div className="text-left">

@@ -1,25 +1,45 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import TikTokConnect from './TikTokConnect';
-import TikTokAnalytics from './TikTokAnalytics';
+import { Store, ShoppingBag, Package, TrendingUp } from 'lucide-react';
 
 interface WelcomeScreenProps {
     accountId: string;
     accountName: string;
-    onComplete?: () => void; // Callback when user wants to go to dashboard
+    onComplete?: () => void;
 }
 
-export default function WelcomeScreen({ accountId, accountName, onComplete }: WelcomeScreenProps) {
-    const { profile } = useAuth();
-    const [isConnected, setIsConnected] = useState(false);
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
-    const handleConnectionChange = (connected: boolean) => {
-        setIsConnected(connected);
-        // Auto-hide welcome screen after a short delay when connected
-        if (connected && onComplete) {
-            setTimeout(() => {
-                onComplete();
-            }, 3000); // Give user 3 seconds to see the success message
+export default function WelcomeScreen({ accountId, accountName }: WelcomeScreenProps) {
+    const { profile } = useAuth();
+    const [connecting, setConnecting] = useState(false);
+
+    const handleConnectShop = async () => {
+        try {
+            setConnecting(true);
+
+            // Request auth URL from backend
+            const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ accountId }),
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.authUrl) {
+                // Redirect to TikTok authorization
+                window.location.href = data.authUrl;
+            } else {
+                alert('Failed to start authorization. Please try again.');
+                setConnecting(false);
+            }
+        } catch (error) {
+            console.error('Error connecting shop:', error);
+            alert('Failed to connect. Please try again.');
+            setConnecting(false);
         }
     };
 
@@ -28,118 +48,100 @@ export default function WelcomeScreen({ accountId, accountName, onComplete }: We
             <div className="max-w-4xl w-full">
                 {/* Welcome Header */}
                 <div className="text-center mb-8">
+                    <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-pink-500 to-red-500 rounded-2xl mb-4">
+                        <Store className="w-10 h-10 text-white" />
+                    </div>
                     <h1 className="text-5xl font-bold text-white mb-4">
-                        Welcome to Your TikTok Dashboard! 🎉
+                        Welcome to Mamba! 🎉
                     </h1>
                     <p className="text-xl text-gray-300">
-                        Hi {profile?.full_name || 'there'}! Let's connect your TikTok account to get started.
+                        Hi {profile?.full_name || 'there'}! Let's connect your TikTok Shop to get started.
                     </p>
                 </div>
 
                 {/* Main Card */}
                 <div className="bg-gray-800/50 backdrop-blur-lg rounded-2xl border border-gray-700 p-8 shadow-2xl">
-                    {!isConnected ? (
-                        <>
-                            {/* Instructions */}
-                            <div className="mb-8">
-                                <h2 className="text-2xl font-bold text-white mb-4">Quick Setup</h2>
-                                <div className="space-y-4">
-                                    <div className="flex items-start gap-4">
-                                        <div className="bg-pink-500 rounded-full w-8 h-8 flex items-center justify-center flex-shrink-0 text-white font-bold">
-                                            1
-                                        </div>
-                                        <div>
-                                            <h3 className="text-white font-semibold mb-1">Connect Your TikTok Account</h3>
-                                            <p className="text-gray-400">Click the button below to authorize access to your TikTok data</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-start gap-4">
-                                        <div className="bg-pink-500 rounded-full w-8 h-8 flex items-center justify-center flex-shrink-0 text-white font-bold">
-                                            2
-                                        </div>
-                                        <div>
-                                            <h3 className="text-white font-semibold mb-1">Sync Your Data</h3>
-                                            <p className="text-gray-400">After connecting, we'll fetch your follower count, videos, and engagement metrics</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-start gap-4">
-                                        <div className="bg-pink-500 rounded-full w-8 h-8 flex items-center justify-center flex-shrink-0 text-white font-bold">
-                                            3
-                                        </div>
-                                        <div>
-                                            <h3 className="text-white font-semibold mb-1">View Your Analytics</h3>
-                                            <p className="text-gray-400">Track your growth, engagement rates, and video performance</p>
-                                        </div>
-                                    </div>
+                    {/* Instructions */}
+                    <div className="mb-8">
+                        <h2 className="text-2xl font-bold text-white mb-4">Quick Setup</h2>
+                        <div className="space-y-4">
+                            <div className="flex items-start gap-4">
+                                <div className="bg-pink-500 rounded-full w-8 h-8 flex items-center justify-center flex-shrink-0 text-white font-bold">
+                                    1
+                                </div>
+                                <div>
+                                    <h3 className="text-white font-semibold mb-1">Connect Your TikTok Shop</h3>
+                                    <p className="text-gray-400">Authorize access to your TikTok Shop seller account</p>
                                 </div>
                             </div>
 
-                            {/* Connection Component */}
-                            <div className="bg-gray-900/50 rounded-xl p-6 border border-gray-700">
-                                <h3 className="text-lg font-semibold text-white mb-4">Account: {accountName}</h3>
-                                <TikTokConnect
-                                    accountId={accountId}
-                                    onConnectionChange={handleConnectionChange}
-                                />
-                            </div>
-
-                            {/* Info Box */}
-                            <div className="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                                <p className="text-blue-300 text-sm">
-                                    <strong>Note:</strong> We only request read-only access to your public TikTok data.
-                                    We cannot post on your behalf or access private information.
-                                </p>
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            {/* Success State */}
-                            <div className="text-center mb-8">
-                                <div className="inline-flex items-center justify-center w-20 h-20 bg-green-500 rounded-full mb-4">
-                                    <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
+                            <div className="flex items-start gap-4">
+                                <div className="bg-pink-500 rounded-full w-8 h-8 flex items-center justify-center flex-shrink-0 text-white font-bold">
+                                    2
                                 </div>
-                                <h2 className="text-3xl font-bold text-white mb-2">You're All Set! 🎊</h2>
-                                <p className="text-gray-300">Your TikTok account is connected. Here's your analytics:</p>
+                                <div>
+                                    <h3 className="text-white font-semibold mb-1">Sync Your Data</h3>
+                                    <p className="text-gray-400">We'll fetch your orders, products, and sales data</p>
+                                </div>
                             </div>
 
-                            {/* Analytics */}
-                            <TikTokAnalytics accountId={accountId} />
-
-                            {/* Go to Dashboard Button */}
-                            <div className="mt-8 text-center">
-                                <button
-                                    onClick={onComplete}
-                                    className="bg-gradient-to-r from-pink-500 to-red-500 text-white px-8 py-4 rounded-xl font-semibold text-lg hover:from-pink-600 hover:to-red-600 transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
-                                >
-                                    Go to Dashboard →
-                                </button>
-                                <p className="text-gray-400 text-sm mt-3">Redirecting automatically in 3 seconds...</p>
+                            <div className="flex items-start gap-4">
+                                <div className="bg-pink-500 rounded-full w-8 h-8 flex items-center justify-center flex-shrink-0 text-white font-bold">
+                                    3
+                                </div>
+                                <div>
+                                    <h3 className="text-white font-semibold mb-1">View Your Analytics</h3>
+                                    <p className="text-gray-400">Track revenue, orders, inventory, and performance</p>
+                                </div>
                             </div>
+                        </div>
+                    </div>
 
-                            {/* Next Steps */}
-                            <div className="mt-8 bg-gray-900/50 rounded-xl p-6 border border-gray-700">
-                                <h3 className="text-lg font-semibold text-white mb-3">What's Next?</h3>
-                                <ul className="space-y-2 text-gray-300">
-                                    <li className="flex items-center gap-2">
-                                        <span className="text-pink-400">→</span>
-                                        Your data will automatically sync to keep your analytics up to date
-                                    </li>
-                                    <li className="flex items-center gap-2">
-                                        <span className="text-pink-400">→</span>
-                                        Click "Sync Now" anytime to refresh your latest TikTok data
-                                    </li>
-                                    <li className="flex items-center gap-2">
-                                        <span className="text-pink-400">→</span>
-                                        Explore different views in the sidebar to see detailed analytics
-                                    </li>
-                                </ul>
-                            </div>
-                        </>
-                    )}
+                    {/* Connection Component */}
+                    <div className="bg-gray-900/50 rounded-xl p-6 border border-gray-700">
+                        <h3 className="text-lg font-semibold text-white mb-4">Account: {accountName}</h3>
+                        <button
+                            onClick={handleConnectShop}
+                            disabled={connecting}
+                            className="w-full bg-gradient-to-r from-pink-500 to-red-500 text-white px-6 py-4 rounded-xl font-semibold text-lg hover:from-pink-600 hover:to-red-600 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        >
+                            {connecting ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                                    Connecting...
+                                </span>
+                            ) : (
+                                'Connect TikTok Shop'
+                            )}
+                        </button>
+                    </div>
+
+                    {/* Info Box */}
+                    <div className="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                        <p className="text-blue-300 text-sm">
+                            <strong>Note:</strong> We only request read-only access to your TikTok Shop data.
+                            We cannot make changes to your shop or process orders on your behalf.
+                        </p>
+                    </div>
+
+                    {/* Features Preview */}
+                    <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                            <ShoppingBag className="w-8 h-8 text-pink-400 mb-2" />
+                            <h4 className="text-white font-semibold mb-1">Order Tracking</h4>
+                            <p className="text-gray-400 text-sm">Monitor all orders in real-time</p>
+                        </div>
+                        <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                            <Package className="w-8 h-8 text-blue-400 mb-2" />
+                            <h4 className="text-white font-semibold mb-1">Inventory Management</h4>
+                            <p className="text-gray-400 text-sm">Track stock levels and products</p>
+                        </div>
+                        <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                            <TrendingUp className="w-8 h-8 text-green-400 mb-2" />
+                            <h4 className="text-white font-semibold mb-1">Revenue Analytics</h4>
+                            <p className="text-gray-400 text-sm">View sales and profit reports</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

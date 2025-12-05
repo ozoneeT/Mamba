@@ -1,5 +1,10 @@
 import crypto from 'crypto';
 import axios from 'axios';
+import dotenv from 'dotenv';
+
+// Load environment variables FIRST
+dotenv.config();
+
 
 interface TikTokShopConfig {
     appKey: string;
@@ -29,6 +34,16 @@ export class TikTokShopApiService {
             authBase: process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com',
         };
 
+        // Debug logging
+        console.log('TikTok Shop API Service initialized with:');
+        console.log('  APP_KEY:', this.config.appKey ? `${this.config.appKey.substring(0, 5)}...` : 'MISSING');
+        console.log('  APP_SECRET:', this.config.appSecret ? `${this.config.appSecret.substring(0, 5)}...` : 'MISSING');
+    }
+
+    /**
+     * Validate that credentials are configured
+     */
+    private validateCredentials(): void {
         if (!this.config.appKey || !this.config.appSecret) {
             throw new Error('TikTok Shop API credentials not configured');
         }
@@ -38,6 +53,7 @@ export class TikTokShopApiService {
      * Generate OAuth authorization URL
      */
     generateAuthUrl(state: string): string {
+        this.validateCredentials();
         const redirectUri = process.env.TIKTOK_SHOP_REDIRECT_URI || '';
 
         const params = new URLSearchParams({
