@@ -19,7 +19,7 @@ interface SyncStatus {
     followerCount: number;
 }
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_TIKTOK_API_URL || 'http://localhost:3001';
 
 export default function TikTokConnect({ accountId, onConnectionChange }: TikTokConnectProps) {
     const [status, setStatus] = useState<ConnectionStatus>({ connected: false });

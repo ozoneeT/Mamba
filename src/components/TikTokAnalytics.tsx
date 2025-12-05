@@ -22,7 +22,7 @@ interface AggregatedMetrics {
     avgEngagementRate: number;
 }
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_TIKTOK_API_URL || 'http://localhost:3001';
 
 export default function TikTokAnalytics({ accountId }: TikTokAnalyticsProps) {
     const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
