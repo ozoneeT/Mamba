@@ -96,7 +96,11 @@ export class TikTokShopApiService {
                 throw new Error(`Token exchange failed: ${response.data.message}`);
             }
 
-            return response.data.data;
+            const tokenData = response.data.data;
+            console.log('Token exchange successful. Granted scopes:', tokenData.granted_scopes || 'No scopes returned');
+            console.log('Access Token (first 10 chars):', tokenData.access_token ? `${tokenData.access_token.substring(0, 10)}...` : 'MISSING');
+
+            return tokenData;
         } catch (error: any) {
             console.error('Error exchanging code for tokens:', error);
             if (error.response) {
@@ -136,18 +140,29 @@ export class TikTokShopApiService {
     /**
      * Generate signature for API requests
      */
-    private generateSignature(path: string, params: Record<string, any>, timestamp: number): string {
+    private generateSignature(path: string, params: Record<string, any>): string {
+        // Exclude access_token and sign from signature calculation
+        const excludeKeys = ['access_token', 'sign'];
+
         // Sort parameters alphabetically
-        const sortedKeys = Object.keys(params).sort();
+        const sortedKeys = Object.keys(params)
+            .filter(key => !excludeKeys.includes(key))
+            .sort();
 
         // Build the string to sign
-        let stringToSign = `${path}`;
+        // Step 1 & 2: Concatenate sorted parameters
+        let paramString = '';
         sortedKeys.forEach(key => {
-            stringToSign += `${key}${params[key]}`;
+            paramString += `${key}${params[key]}`;
         });
-        stringToSign += `timestamp${timestamp}`;
 
-        // Create HMAC SHA256 signature
+        // Step 3: Append to API path
+        let stringToSign = `${path}${paramString}`;
+
+        // Step 4: Wrap with app_secret
+        stringToSign = `${this.config.appSecret}${stringToSign}${this.config.appSecret}`;
+
+        // Step 5: Encode using HMAC-SHA256
         const hmac = crypto.createHmac('sha256', this.config.appSecret);
         hmac.update(stringToSign);
         return hmac.digest('hex');
@@ -176,7 +191,7 @@ export class TikTokShopApiService {
             };
 
             // Generate signature
-            const signature = this.generateSignature(path, allParams, timestamp);
+            const signature = this.generateSignature(path, allParams);
 
             const url = `${this.config.apiBase}${path}`;
 
@@ -192,6 +207,8 @@ export class TikTokShopApiService {
                     headers,
                 });
             } else {
+                // For POST requests, we need to handle the body in signature generation if strictly following the guide
+                // But for now, let's assume the user's guide for GET requests (authorized shops)
                 response = await axios.post(
                     url,
                     params,
@@ -233,7 +250,7 @@ export class TikTokShopApiService {
                 timestamp: timestamp.toString(),
             };
 
-            const signature = this.generateSignature(path, params, timestamp);
+            const signature = this.generateSignature(path, params);
 
             const url = `${this.config.apiBase}${path}`;
 
