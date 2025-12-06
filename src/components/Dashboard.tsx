@@ -27,7 +27,7 @@ export function Dashboard() {
 
   // Initialize Account (Just fetch, don't create)
   useEffect(() => {
-    if (profile) {
+    if (profile?.id) {
       fetchAccount();
     }
   }, [profile]);
@@ -36,10 +36,12 @@ export function Dashboard() {
     try {
       setInitializing(true);
 
+      if (!profile?.id) return;
+
       const { data: userAccounts, error } = await supabase
         .from('user_accounts')
         .select('account_id, accounts(*)')
-        .eq('user_id', profile?.id);
+        .eq('user_id', profile.id);
 
       if (error) throw error;
 
@@ -98,11 +100,12 @@ export function Dashboard() {
   useEffect(() => {
     if (selectedAccount) {
       fetchShops();
-    } else {
+    } else if (!initializing) {
+      // Only show welcome if we are done initializing and truly have no account
       setCheckingShop(false);
       setShowWelcome(true);
     }
-  }, [selectedAccount]);
+  }, [selectedAccount, initializing]);
 
   // Handle TikTok Auth Redirect
   useEffect(() => {
@@ -213,7 +216,7 @@ export function Dashboard() {
     }
   };
 
-  if (initializing) {
+  if (initializing || checkingShop) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-900">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
