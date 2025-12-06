@@ -5,6 +5,7 @@ import { Account } from '../../lib/supabase';
 
 interface OverviewViewProps {
   account: Account;
+  shopId?: string;
 }
 
 interface ShopMetrics {
@@ -18,7 +19,7 @@ interface ShopMetrics {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
-export function OverviewView({ account }: OverviewViewProps) {
+export function OverviewView({ account, shopId }: OverviewViewProps) {
   const [metrics, setMetrics] = useState<ShopMetrics>({
     totalOrders: 0,
     totalRevenue: 0,
@@ -32,8 +33,10 @@ export function OverviewView({ account }: OverviewViewProps) {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    fetchShopMetrics();
-  }, [account.id]);
+    if (shopId) {
+      fetchShopMetrics();
+    }
+  }, [account.id, shopId]);
 
   const fetchShopMetrics = async () => {
     try {
@@ -41,9 +44,9 @@ export function OverviewView({ account }: OverviewViewProps) {
 
       // Fetch orders, products, and performance data
       const [ordersRes, productsRes, performanceRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/tiktok-shop/orders/${account.id}?page=1&pageSize=100`),
-        fetch(`${API_BASE_URL}/api/tiktok-shop/products/${account.id}?page=1&pageSize=100`),
-        fetch(`${API_BASE_URL}/api/tiktok-shop/performance/${account.id}`),
+        fetch(`${API_BASE_URL}/api/tiktok-shop/orders/${account.id}?shopId=${shopId}&page=1&pageSize=100`),
+        fetch(`${API_BASE_URL}/api/tiktok-shop/products/${account.id}?shopId=${shopId}&page=1&pageSize=100`),
+        fetch(`${API_BASE_URL}/api/tiktok-shop/performance/${account.id}?shopId=${shopId}`),
       ]);
 
       const ordersData = await ordersRes.json();
@@ -88,7 +91,7 @@ export function OverviewView({ account }: OverviewViewProps) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ syncType: 'all' }),
+        body: JSON.stringify({ shopId, syncType: 'all' }),
       });
 
       const result = await response.json();
@@ -157,8 +160,8 @@ export function OverviewView({ account }: OverviewViewProps) {
               onClick={handleSync}
               disabled={syncing}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${syncing
-                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                  : 'bg-pink-600 hover:bg-pink-700 text-white shadow-lg shadow-pink-500/20'
+                ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                : 'bg-pink-600 hover:bg-pink-700 text-white shadow-lg shadow-pink-500/20'
                 }`}
             >
               <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />

@@ -4,6 +4,7 @@ import { Account } from '../../lib/supabase';
 
 interface ProductsViewProps {
     account: Account;
+    shopId?: string;
 }
 
 interface Product {
@@ -18,18 +19,20 @@ interface Product {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
-export function ProductsView({ account }: ProductsViewProps) {
+export function ProductsView({ account, shopId }: ProductsViewProps) {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchProducts();
-    }, [account.id]);
+        if (shopId) {
+            fetchProducts();
+        }
+    }, [account.id, shopId]);
 
     const fetchProducts = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/products/${account.id}?page=1&pageSize=50`);
+            const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/products/${account.id}?shopId=${shopId}&page=1&pageSize=50`);
             const result = await response.json();
 
             if (result.success && result.data?.products) {

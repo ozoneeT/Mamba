@@ -7,6 +7,7 @@ import { DateRangePicker, DateRange } from '../DateRangePicker';
 
 interface ProfitLossViewProps {
   account: Account;
+  shopId?: string;
 }
 
 interface ProfitLossMetrics {
@@ -34,7 +35,7 @@ const getDefaultDateRange = (): DateRange => {
   };
 };
 
-export function ProfitLossView({ account }: ProfitLossViewProps) {
+export function ProfitLossView({ account, shopId }: ProfitLossViewProps) {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
   const { data, loading, aggregateMetrics } = useKPIData(account, undefined, dateRange);
   const [plMetrics, setPlMetrics] = useState<ProfitLossMetrics | null>(null);
@@ -269,9 +270,8 @@ export function ProfitLossView({ account }: ProfitLossViewProps) {
               )}
               <p className="text-gray-400 font-medium">Net Profit</p>
             </div>
-            <p className={`text-3xl font-bold mb-1 ${
-              plMetrics && plMetrics.net_profit > 0 ? 'text-green-400' : 'text-red-400'
-            }`}>
+            <p className={`text-3xl font-bold mb-1 ${plMetrics && plMetrics.net_profit > 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
               {formatCurrency(plMetrics?.net_profit || 0)}
             </p>
             <p className="text-sm text-gray-400">Revenue minus all costs</p>

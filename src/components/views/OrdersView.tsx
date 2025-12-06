@@ -4,6 +4,7 @@ import { Account } from '../../lib/supabase';
 
 interface OrdersViewProps {
     account: Account;
+    shopId?: string;
 }
 
 interface Order {
@@ -18,19 +19,21 @@ interface Order {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
-export function OrdersView({ account }: OrdersViewProps) {
+export function OrdersView({ account, shopId }: OrdersViewProps) {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('all');
 
     useEffect(() => {
-        fetchOrders();
-    }, [account.id, statusFilter]);
+        if (shopId) {
+            fetchOrders();
+        }
+    }, [account.id, statusFilter, shopId]);
 
     const fetchOrders = async () => {
         try {
             setLoading(true);
-            const params = new URLSearchParams({ page: '1', pageSize: '50' });
+            const params = new URLSearchParams({ shopId: shopId || '', page: '1', pageSize: '50' });
             if (statusFilter !== 'all') {
                 params.append('status', statusFilter);
             }

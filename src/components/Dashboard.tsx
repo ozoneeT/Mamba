@@ -6,7 +6,9 @@ import { ProfitLossView } from './views/ProfitLossView';
 import { OrdersView } from './views/OrdersView';
 import { ProductsView } from './views/ProductsView';
 import WelcomeScreen from './WelcomeScreen';
+import { ShopList } from './ShopList';
 import { Account } from '../lib/supabase';
+import { ArrowLeft } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
@@ -16,10 +18,15 @@ export function Dashboard() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [checkingShop, setCheckingShop] = useState(true);
 
+  // Shop List State
+  const [shops, setShops] = useState<any[]>([]);
+  const [selectedShop, setSelectedShop] = useState<any | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
+
   // Check if TikTok Shop is connected when account changes
   useEffect(() => {
     if (selectedAccount) {
-      checkShopConnection();
+      fetchShops();
     }
   }, [selectedAccount]);
 
@@ -39,7 +46,7 @@ export function Dashboard() {
       // If we have an account ID, we should try to select it if it's not already selected
       // Or just refresh the connection status if it is selected
       if (selectedAccount && selectedAccount.id === accountId) {
-        checkShopConnection();
+        fetchShops();
       } else if (accountId) {
         // Ideally we would switch to this account, but for now let's just reload the page
         // or let the user select it. 
@@ -77,7 +84,7 @@ export function Dashboard() {
 
       if (data.success) {
         // Success! Refresh connection status
-        await checkShopConnection();
+        await fetchShops();
         alert('TikTok Shop connected successfully!');
       } else {
         throw new Error(data.error || 'Failed to finalize connection');
@@ -89,29 +96,60 @@ export function Dashboard() {
     }
   };
 
-  const checkShopConnection = async () => {
+  const fetchShops = async () => {
     if (!selectedAccount) return;
 
     try {
       setCheckingShop(true);
 
-      // Check if TikTok Shop is connected
-      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/status/${selectedAccount.id}`);
+      // Fetch authorized shops
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/shops/${selectedAccount.id}`);
       const data = await response.json();
 
-      if (!data.connected) {
-        // Not connected, show welcome screen
-        setShowWelcome(true);
+      if (data.success && data.data.length > 0) {
+        setShops(data.data);
+        setShowWelcome(false);
+        // If we only have one shop, maybe select it automatically? 
+        // For now, let's keep the list view as default unless explicitly navigating
       } else {
-        // Connected, hide welcome screen
+        setShops([]);
+        // If no shops, we can show the welcome screen or just the empty list
+        // Let's show the empty list via ShopList component which handles the "Add Shop" button
         setShowWelcome(false);
       }
     } catch (error) {
-      console.error('Error checking TikTok Shop connection:', error);
-      // On error, show welcome screen to be safe
-      setShowWelcome(true);
+      console.error('Error fetching shops:', error);
+      setShops([]);
     } finally {
       setCheckingShop(false);
+    }
+  };
+
+  const handleAddShop = async () => {
+    if (!selectedAccount) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          accountId: selectedAccount.id,
+          accountName: selectedAccount.name
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert('Failed to start authorization');
+      }
+    } catch (error) {
+      console.error('Error starting auth:', error);
+      alert('Failed to start authorization');
     }
   };
 
@@ -127,11 +165,6 @@ export function Dashboard() {
       );
     }
 
-    // Show welcome screen if TikTok Shop not connected
-    if (showWelcome && !checkingShop) {
-      return <WelcomeScreen accountId={selectedAccount.id} accountName={selectedAccount.name} />;
-    }
-
     // Show loading while checking
     if (checkingShop) {
       return (
@@ -141,42 +174,69 @@ export function Dashboard() {
       );
     }
 
+    // Show Shop List if in list mode
+    if (viewMode === 'list') {
+      return (
+        <ShopList
+          shops={shops}
+          onSelectShop={(shop) => {
+            setSelectedShop(shop);
+            setViewMode('details');
+          }}
+          onAddShop={handleAddShop}
+          isLoading={checkingShop}
+        />
+      );
+    }
+
+    // Show Details View
     switch (activeTab) {
       case 'overview':
-        return <OverviewView account={selectedAccount} />;
+        return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
       case 'orders':
-        return <OrdersView account={selectedAccount} />;
+        return <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} />;
       case 'products':
-        return <ProductsView account={selectedAccount} />;
+        return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
       case 'profit-loss':
-        return <ProfitLossView account={selectedAccount} />;
+        return <ProfitLossView account={selectedAccount} shopId={selectedShop?.shop_id} />;
       default:
-        return <OverviewView account={selectedAccount} />;
+        return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
     }
   };
 
-  // If showing welcome screen, render it full screen
-  if (selectedAccount && showWelcome && !checkingShop) {
-    return (
-      <WelcomeScreen
-        accountId={selectedAccount.id}
-        accountName={selectedAccount.name}
-        onComplete={() => setShowWelcome(false)} // Hide welcome screen and show dashboard
-      />
-    );
-  }
-
   return (
     <div className="flex h-screen bg-gray-900">
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      {/* Only show sidebar in details mode */}
+      {viewMode === 'details' && (
+        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      )}
 
       <main className="flex-1 overflow-y-auto">
         <div className="p-8">
-          <div className="mb-6">
-            <AccountSelector
-              selectedAccount={selectedAccount}
-              onSelectAccount={setSelectedAccount}
-            />
+          <div className="mb-6 flex justify-between items-center">
+            <div className="flex items-center space-x-4">
+              {viewMode === 'details' && (
+                <button
+                  onClick={() => {
+                    setViewMode('list');
+                    setSelectedShop(null);
+                  }}
+                  className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors"
+                >
+                  <ArrowLeft size={24} />
+                </button>
+              )}
+              <AccountSelector
+                selectedAccount={selectedAccount}
+                onSelectAccount={setSelectedAccount}
+              />
+            </div>
+
+            {viewMode === 'details' && selectedShop && (
+              <div className="text-gray-400 text-sm">
+                Viewing: <span className="text-white font-medium">{selectedShop.shop_name}</span>
+              </div>
+            )}
           </div>
 
           {renderView()}
