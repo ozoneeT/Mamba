@@ -35,9 +35,13 @@ router.post('/start', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('Error starting TikTok Shop auth:', error);
+        // Log more details about the error
+        if (error.message.includes('credentials not configured')) {
+            console.error('Missing credentials. Check TIKTOK_SHOP_APP_KEY/SECRET or SANDBOX variants.');
+        }
         res.status(500).json({
             success: false,
-            error: error.message,
+            error: error.message || 'Internal Server Error',
         });
     }
 });

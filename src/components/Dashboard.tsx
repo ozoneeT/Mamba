@@ -145,11 +145,11 @@ export function Dashboard() {
       if (data.url) {
         window.location.href = data.url;
       } else {
-        alert('Failed to start authorization');
+        alert(`Failed to start authorization: ${data.error || 'Unknown error'}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error starting auth:', error);
-      alert('Failed to start authorization');
+      alert(`Failed to start authorization: ${error.message}`);
     }
   };
 
