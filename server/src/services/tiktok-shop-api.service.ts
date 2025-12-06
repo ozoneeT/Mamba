@@ -39,9 +39,8 @@ export class TikTokShopApiService {
             appSecret: this.isSandbox
                 ? (process.env.TIKTOK_SHOP_SANDBOX_APP_SECRET || process.env.TIKTOK_SHOP_APP_SECRET || '')
                 : (process.env.TIKTOK_SHOP_APP_SECRET || ''),
-            apiBase: this.isSandbox
-                ? 'https://open-api-sandbox.tiktokglobalshop.com'
-                : (process.env.TIKTOK_SHOP_API_BASE || 'https://open-api.tiktokglobalshop.com'),
+            // Use Production API URL even for Sandbox as open-api-sandbox seems to be invalid/deprecated for some endpoints
+            apiBase: process.env.TIKTOK_SHOP_API_BASE || 'https://open-api.tiktokglobalshop.com',
             authBase: process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com',
         };
 
