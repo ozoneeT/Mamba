@@ -46,77 +46,103 @@ router.post('/start', async (req: Request, res: Response) => {
  * GET /api/tiktok-shop/auth/callback
  * Handle OAuth callback from TikTok
  */
+/**
+ * Helper function to process auth code and save shop data
+ */
+async function processAuthCode(code: string, accountId: string) {
+    // Exchange code for tokens
+    const tokenData = await tiktokShopApi.exchangeCodeForTokens(code);
+
+    // Get authorized shops
+    const shops = await tiktokShopApi.getAuthorizedShops(tokenData.access_token);
+
+    if (shops.length === 0) {
+        throw new Error('No shops found');
+    }
+
+    // Calculate token expiration timestamps
+    const now = new Date();
+    const accessTokenExpiresAt = new Date(now.getTime() + tokenData.access_token_expire_in * 1000);
+    const refreshTokenExpiresAt = new Date(now.getTime() + tokenData.refresh_token_expire_in * 1000);
+
+    // Store shop data in database
+    for (const shop of shops) {
+        const { error } = await supabase
+            .from('tiktok_shops')
+            .upsert({
+                account_id: accountId,
+                shop_id: shop.id,
+                shop_cipher: shop.cipher,
+                shop_name: shop.name,
+                region: shop.region,
+                seller_type: shop.seller_type,
+                access_token: tokenData.access_token,
+                refresh_token: tokenData.refresh_token,
+                token_expires_at: accessTokenExpiresAt.toISOString(),
+                refresh_token_expires_at: refreshTokenExpiresAt.toISOString(),
+                updated_at: new Date().toISOString(),
+            }, {
+                onConflict: 'account_id,shop_id',
+            });
+
+        if (error) {
+            console.error('Error storing shop data:', error);
+            throw error;
+        }
+
+        // Update the main account record with the shop name and handle
+        const { error: updateError } = await supabase
+            .from('accounts')
+            .update({
+                name: shop.name,
+                tiktok_handle: shop.name.replace(/\s+/g, '').toLowerCase(),
+                avatar_url: null,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', accountId);
+
+        if (updateError) {
+            console.error('Error updating account details:', updateError);
+        }
+    }
+
+    return shops;
+}
+
+/**
+ * GET /api/tiktok-shop/auth/callback
+ * Handle OAuth callback from TikTok
+ */
 router.get('/callback', async (req: Request, res: Response) => {
     try {
         const { code, state } = req.query;
 
-        if (!code || !state) {
+        if (!code) {
             return res.redirect(
-                `${process.env.FRONTEND_URL}?tiktok_error=${encodeURIComponent('Authorization failed - missing code or state')}`
+                `${process.env.FRONTEND_URL}?tiktok_error=${encodeURIComponent('Authorization failed - missing code')}`
             );
         }
 
-        // Decode state to get accountId
-        const stateData = JSON.parse(Buffer.from(state as string, 'base64').toString());
-        const { accountId } = stateData;
+        // If state is missing or invalid, redirect to frontend to finalize
+        let accountId: string | null = null;
+        if (state) {
+            try {
+                const stateData = JSON.parse(Buffer.from(state as string, 'base64').toString());
+                accountId = stateData.accountId;
+            } catch (e) {
+                console.warn('Failed to parse state:', e);
+            }
+        }
 
-        // Exchange code for tokens
-        const tokenData = await tiktokShopApi.exchangeCodeForTokens(code as string);
-
-        // Get authorized shops
-        const shops = await tiktokShopApi.getAuthorizedShops(tokenData.access_token);
-
-        if (shops.length === 0) {
+        if (!accountId) {
+            // Redirect to frontend to let user select account
             return res.redirect(
-                `${process.env.FRONTEND_URL}?tiktok_error=${encodeURIComponent('No shops found')}`
+                `${process.env.FRONTEND_URL}?tiktok_code=${code}&action=finalize_auth`
             );
         }
 
-        // Calculate token expiration timestamps
-        const now = new Date();
-        const accessTokenExpiresAt = new Date(now.getTime() + tokenData.access_token_expire_in * 1000);
-        const refreshTokenExpiresAt = new Date(now.getTime() + tokenData.refresh_token_expire_in * 1000);
-
-        // Store shop data in database
-        for (const shop of shops) {
-            const { error } = await supabase
-                .from('tiktok_shops')
-                .upsert({
-                    account_id: accountId,
-                    shop_id: shop.id,
-                    shop_cipher: shop.cipher,
-                    shop_name: shop.name,
-                    region: shop.region,
-                    seller_type: shop.seller_type,
-                    access_token: tokenData.access_token,
-                    refresh_token: tokenData.refresh_token,
-                    token_expires_at: accessTokenExpiresAt.toISOString(),
-                    refresh_token_expires_at: refreshTokenExpiresAt.toISOString(),
-                    updated_at: new Date().toISOString(),
-                }, {
-                    onConflict: 'account_id,shop_id',
-                });
-
-            if (error) {
-                console.error('Error storing shop data:', error);
-            }
-
-            // Update the main account record with the shop name and handle
-            // This ensures the dashboard shows the real TikTok Shop name
-            const { error: updateError } = await supabase
-                .from('accounts')
-                .update({
-                    name: shop.name,
-                    tiktok_handle: shop.name.replace(/\s+/g, '').toLowerCase(), // Best effort handle derivation
-                    avatar_url: null, // We could fetch this if available in other APIs
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', accountId);
-
-            if (updateError) {
-                console.error('Error updating account details:', updateError);
-            }
-        }
+        // Process auth code
+        await processAuthCode(code as string, accountId);
 
         // Redirect back to frontend with success
         res.redirect(`${process.env.FRONTEND_URL}?tiktok_connected=true&account_id=${accountId}`);
@@ -125,6 +151,36 @@ router.get('/callback', async (req: Request, res: Response) => {
         res.redirect(
             `${process.env.FRONTEND_URL}?tiktok_error=${encodeURIComponent(error.message)}`
         );
+    }
+});
+
+/**
+ * POST /api/tiktok-shop/auth/finalize
+ * Finalize OAuth flow with account ID from frontend
+ */
+router.post('/finalize', async (req: Request, res: Response) => {
+    try {
+        const { code, accountId } = req.body;
+
+        if (!code || !accountId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Code and Account ID are required',
+            });
+        }
+
+        await processAuthCode(code, accountId);
+
+        res.json({
+            success: true,
+            message: 'TikTok Shop connected successfully',
+        });
+    } catch (error: any) {
+        console.error('Error finalizing TikTok Shop auth:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
     }
 });
 

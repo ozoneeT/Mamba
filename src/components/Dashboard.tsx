@@ -29,6 +29,8 @@ export function Dashboard() {
     const tiktokConnected = params.get('tiktok_connected');
     const tiktokError = params.get('tiktok_error');
     const accountId = params.get('account_id');
+    const tiktokCode = params.get('tiktok_code');
+    const action = params.get('action');
 
     if (tiktokConnected === 'true') {
       // Clear URL params
@@ -48,8 +50,44 @@ export function Dashboard() {
       // Clear URL params
       window.history.replaceState({}, '', window.location.pathname);
       alert(`TikTok Connection Error: ${decodeURIComponent(tiktokError)}`);
+    } else if (tiktokCode && action === 'finalize_auth' && selectedAccount) {
+      // Handle TikTok-initiated auth (missing state)
+      // We need to finalize the connection with the current account
+      finalizeAuth(tiktokCode, selectedAccount.id);
     }
   }, [selectedAccount]);
+
+  const finalizeAuth = async (code: string, accountId: string) => {
+    try {
+      // Clear URL params to avoid double submission
+      window.history.replaceState({}, '', window.location.pathname);
+
+      // Show loading state (you might want to add a specific loading state for this)
+      setCheckingShop(true);
+
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/finalize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code, accountId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Success! Refresh connection status
+        await checkShopConnection();
+        alert('TikTok Shop connected successfully!');
+      } else {
+        throw new Error(data.error || 'Failed to finalize connection');
+      }
+    } catch (error: any) {
+      console.error('Error finalizing auth:', error);
+      alert(`Failed to connect TikTok Shop: ${error.message}`);
+      setCheckingShop(false);
+    }
+  };
 
   const checkShopConnection = async () => {
     if (!selectedAccount) return;
