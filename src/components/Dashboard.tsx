@@ -1,27 +1,97 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
-import { AccountSelector } from './AccountSelector';
 import { OverviewView } from './views/OverviewView';
 import { ProfitLossView } from './views/ProfitLossView';
 import { OrdersView } from './views/OrdersView';
 import { ProductsView } from './views/ProductsView';
 import WelcomeScreen from './WelcomeScreen';
 import { ShopList } from './ShopList';
-import { Account } from '../lib/supabase';
+import { Account, supabase } from '../lib/supabase';
 import { ArrowLeft } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function Dashboard() {
+  const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [checkingShop, setCheckingShop] = useState(true);
+  const [initializing, setInitializing] = useState(true);
 
   // Shop List State
   const [shops, setShops] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
+
+  // Initialize Account (Auto-create if needed)
+  useEffect(() => {
+    if (profile) {
+      initializeAccount();
+    }
+  }, [profile]);
+
+  const initializeAccount = async () => {
+    try {
+      setInitializing(true);
+
+      // 1. Check for existing accounts
+      const { data: userAccounts, error } = await supabase
+        .from('user_accounts')
+        .select('account_id, accounts(*)')
+        .eq('user_id', profile?.id);
+
+      if (error) throw error;
+
+      const accounts = userAccounts
+        ?.map((ua: any) => ua.accounts)
+        .filter((acc: Account) => acc.status === 'active') || [];
+
+      if (accounts.length > 0) {
+        // Account exists, select the first one
+        setSelectedAccount(accounts[0]);
+      } else {
+        // No account exists, create default one
+        await createDefaultAccount();
+      }
+    } catch (error) {
+      console.error('Error initializing account:', error);
+    } finally {
+      setInitializing(false);
+    }
+  };
+
+  const createDefaultAccount = async () => {
+    try {
+      // Create the account
+      const { data: account, error: accountError } = await supabase
+        .from('accounts')
+        .insert({
+          name: 'My Shop',
+          status: 'active',
+        })
+        .select()
+        .single();
+
+      if (accountError) throw accountError;
+
+      // Link account to user
+      const { error: linkError } = await supabase
+        .from('user_accounts')
+        .insert({
+          user_id: profile?.id,
+          account_id: account.id,
+        });
+
+      if (linkError) throw linkError;
+
+      setSelectedAccount(account);
+    } catch (error) {
+      console.error('Error creating default account:', error);
+      alert('Failed to initialize account. Please try refreshing.');
+    }
+  };
 
   // Check if TikTok Shop is connected when account changes
   useEffect(() => {
@@ -46,11 +116,8 @@ export function Dashboard() {
       // If we have an account ID, we should try to select it if it's not already selected
       // Or just refresh the connection status if it is selected
       if (selectedAccount && selectedAccount.id === accountId) {
-        fetchShops();
+        fetchShops(true);
       } else if (accountId) {
-        // Ideally we would switch to this account, but for now let's just reload the page
-        // or let the user select it. 
-        // A simple reload might be safest to ensure everything syncs up if the account changed
         window.location.reload();
       }
     } else if (tiktokError) {
@@ -112,10 +179,7 @@ export function Dashboard() {
 
         // If we just connected a shop, or if there's only one shop, select it automatically
         if (isAfterConnect || data.data.length === 1) {
-          // If multiple shops, ideally we'd find the new one. For now, taking the last one or first one is a reasonable guess.
-          // Let's assume the API returns them in some order, or we just pick the first one if it's the only one.
-          // If we just connected, let's pick the most recent one if possible, or just the first one.
-          const shopToSelect = data.data[0]; // You might want to sort by created_at if available
+          const shopToSelect = data.data[0];
           setSelectedShop(shopToSelect);
           setViewMode('details');
         }
@@ -162,13 +226,29 @@ export function Dashboard() {
   };
 
   const renderView = () => {
-    if (!selectedAccount) {
+    // Show loading while initializing account
+    if (initializing) {
       return (
-        <WelcomeScreen />
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
+        </div>
       );
     }
 
-    // Show loading while checking
+    if (!selectedAccount) {
+      // Should not happen if initialization works, but fallback to WelcomeScreen just in case
+      // passing undefined accountId will trigger the "No Account" state in WelcomeScreen if we wanted,
+      // but here we want to avoid that state if possible.
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <p className="text-gray-400">Initializing account...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Show loading while checking shops
     if (checkingShop) {
       return (
         <div className="flex items-center justify-center h-64">
@@ -239,10 +319,7 @@ export function Dashboard() {
                   <ArrowLeft size={24} />
                 </button>
               )}
-              <AccountSelector
-                selectedAccount={selectedAccount}
-                onSelectAccount={setSelectedAccount}
-              />
+              {/* AccountSelector removed as per user request */}
             </div>
 
             {viewMode === 'details' && selectedShop && (
