@@ -237,6 +237,64 @@ export class TikTokShopApiService {
             throw new Error(`Failed to get authorized shops: ${error.message}`);
         }
     }
+
+    /**
+     * Get Shop Information
+     * GET /shop/get
+     */
+    async getShopInfo(accessToken: string, shopCipher: string): Promise<any> {
+        return this.makeApiRequest('/shop/202309/shop_info', accessToken, shopCipher);
+    }
+
+    /**
+     * Get Seller Performance Metrics
+     * GET /seller/performance
+     */
+    async getSellerPerformance(accessToken: string, shopCipher: string): Promise<any> {
+        return this.makeApiRequest('/seller/202309/performance', accessToken, shopCipher);
+    }
+
+    /**
+     * Search Orders
+     * POST /order/202309/orders/search
+     */
+    async searchOrders(accessToken: string, shopCipher: string, params: any): Promise<any> {
+        return this.makeApiRequest('/order/202309/orders/search', accessToken, shopCipher, params, 'POST');
+    }
+
+    /**
+     * Get Order Detail
+     * GET /orders/{order_id}
+     * Note: TikTok API might use a different path for single order, usually it's a list query with IDs
+     * Using /order/202309/orders to get details
+     */
+    async getOrderDetails(accessToken: string, shopCipher: string, orderIds: string[]): Promise<any> {
+        return this.makeApiRequest('/order/202309/orders', accessToken, shopCipher, { order_ids: orderIds }, 'GET');
+    }
+
+    /**
+     * Search Products
+     * POST /product/202309/products/search
+     */
+    async searchProducts(accessToken: string, shopCipher: string, params: any): Promise<any> {
+        return this.makeApiRequest('/product/202309/products/search', accessToken, shopCipher, params, 'POST');
+    }
+
+    /**
+     * Get Settlements
+     * GET /finance/202309/statements
+     */
+    async getSettlements(accessToken: string, shopCipher: string, params: any): Promise<any> {
+        return this.makeApiRequest('/finance/202309/statements', accessToken, shopCipher, params, 'GET');
+    }
+
+    /**
+     * Get Payouts (Withdrawals)
+     * GET /finance/202309/withdrawals
+     */
+    async getPayouts(accessToken: string, shopCipher: string, params: any): Promise<any> {
+        return this.makeApiRequest('/finance/202309/withdrawals', accessToken, shopCipher, params, 'GET');
+    }
 }
 
 export const tiktokShopApi = new TikTokShopApiService();

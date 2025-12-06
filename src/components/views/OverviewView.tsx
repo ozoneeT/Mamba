@@ -1,4 +1,4 @@
-import { TrendingUp, DollarSign, ShoppingBag, Package, Users, Star } from 'lucide-react';
+import { TrendingUp, DollarSign, ShoppingBag, Package, Users, Star, RefreshCw } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { StatCard } from '../StatCard';
 import { Account } from '../../lib/supabase';
@@ -28,6 +28,8 @@ export function OverviewView({ account }: OverviewViewProps) {
     shopRating: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
     fetchShopMetrics();
@@ -53,22 +55,55 @@ export function OverviewView({ account }: OverviewViewProps) {
       const products = productsData.data?.products || [];
       const performance = performanceData.data || {};
 
-      const totalRevenue = orders.reduce((sum: number, order: any) => sum + (order.total_amount || 0), 0);
+      const totalRevenue = orders.reduce((sum: number, order: any) => sum + (parseFloat(order.payment_info?.total_amount) || 0), 0);
       const totalOrders = orders.length;
       const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+      // Extract performance metrics safely
+      // Note: Actual structure depends on TikTok API response, using safe defaults
+      const conversionRate = performance.shop_health?.conversion_rate || 0;
+      const shopRating = performance.shop_health?.shop_rating || 0;
 
       setMetrics({
         totalOrders,
         totalRevenue,
         totalProducts: products.length,
         avgOrderValue,
-        conversionRate: performance.conversion_rate || 0,
-        shopRating: performance.shop_rating || 0,
+        conversionRate,
+        shopRating,
       });
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Error fetching shop metrics:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSync = async () => {
+    try {
+      setSyncing(true);
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${account.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ syncType: 'all' }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        // Refresh metrics after sync
+        await fetchShopMetrics();
+      } else {
+        console.error('Sync failed:', result.error);
+        alert('Failed to sync data: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Error syncing data:', error);
+      alert('Error triggering sync');
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -82,7 +117,7 @@ export function OverviewView({ account }: OverviewViewProps) {
     return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  if (loading) {
+  if (loading && !metrics.totalOrders) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
@@ -105,14 +140,35 @@ export function OverviewView({ account }: OverviewViewProps) {
             )}
             <div>
               <h2 className="text-2xl font-bold text-white">{account.name}</h2>
-              <p className="text-pink-400 font-medium">{account.tiktok_handle || 'TikTok Shop'}</p>
-              {metrics.shopRating > 0 && (
-                <div className="flex items-center gap-1 mt-1">
-                  <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                  <span className="text-sm text-gray-300">{metrics.shopRating.toFixed(1)} Shop Rating</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <p className="text-pink-400 font-medium">{account.tiktok_handle || 'TikTok Shop'}</p>
+                {metrics.shopRating > 0 && (
+                  <div className="flex items-center gap-1 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">
+                    <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                    <span className="text-xs text-yellow-200">{metrics.shopRating.toFixed(1)}</span>
+                  </div>
+                )}
+              </div>
             </div>
+          </div>
+
+          <div className="flex flex-col items-end gap-2">
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${syncing
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  : 'bg-pink-600 hover:bg-pink-700 text-white shadow-lg shadow-pink-500/20'
+                }`}
+            >
+              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync Now'}
+            </button>
+            {lastUpdated && (
+              <p className="text-xs text-gray-500">
+                Updated: {lastUpdated.toLocaleTimeString()}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -177,28 +233,29 @@ export function OverviewView({ account }: OverviewViewProps) {
       </div>
 
       {/* Quick Actions / Info */}
-      <div className="bg-gray-800 rounded-xl p-6">
+      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-4">Quick Stats</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-gray-400 text-sm">Orders Today</p>
-            <p className="text-2xl font-bold text-white">-</p>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Orders Today</p>
+            <p className="text-xl font-bold text-white mt-1">-</p>
           </div>
-          <div>
-            <p className="text-gray-400 text-sm">Revenue Today</p>
-            <p className="text-2xl font-bold text-white">-</p>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Revenue Today</p>
+            <p className="text-xl font-bold text-white mt-1">-</p>
           </div>
-          <div>
-            <p className="text-gray-400 text-sm">Pending Orders</p>
-            <p className="text-2xl font-bold text-white">-</p>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Pending</p>
+            <p className="text-xl font-bold text-white mt-1">-</p>
           </div>
-          <div>
-            <p className="text-gray-400 text-sm">Low Stock Items</p>
-            <p className="text-2xl font-bold text-white">-</p>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Low Stock</p>
+            <p className="text-xl font-bold text-white mt-1">-</p>
           </div>
         </div>
-        <p className="text-gray-500 text-sm mt-4">
-          💡 Tip: Navigate to Orders or Products for detailed insights
+        <p className="text-gray-500 text-sm mt-4 flex items-center gap-2">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+          Live data from TikTok Shop
         </p>
       </div>
     </div>

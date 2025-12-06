@@ -17,11 +17,6 @@ export function AddAccountModal({ onAccountAdded }: AddAccountModalProps) {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!accountName.trim()) {
-            alert('Please enter an account name');
-            return;
-        }
-
         try {
             setLoading(true);
 
@@ -29,7 +24,7 @@ export function AddAccountModal({ onAccountAdded }: AddAccountModalProps) {
             const { data: account, error: accountError } = await supabase
                 .from('accounts')
                 .insert({
-                    name: accountName.trim(),
+                    name: accountName.trim() || 'New Shop',
                     tiktok_handle: tiktokHandle.trim() || null,
                     status: 'active',
                 })
@@ -94,15 +89,14 @@ export function AddAccountModal({ onAccountAdded }: AddAccountModalProps) {
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                                        Account Name <span className="text-red-400">*</span>
+                                        Account Name (Optional)
                                     </label>
                                     <input
                                         type="text"
                                         value={accountName}
                                         onChange={(e) => setAccountName(e.target.value)}
-                                        placeholder="e.g., My TikTok Shop"
+                                        placeholder="e.g., My TikTok Shop (will be updated automatically)"
                                         className="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-pink-500"
-                                        required
                                     />
                                 </div>
 

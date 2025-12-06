@@ -100,6 +100,22 @@ router.get('/callback', async (req: Request, res: Response) => {
             if (error) {
                 console.error('Error storing shop data:', error);
             }
+
+            // Update the main account record with the shop name and handle
+            // This ensures the dashboard shows the real TikTok Shop name
+            const { error: updateError } = await supabase
+                .from('accounts')
+                .update({
+                    name: shop.name,
+                    tiktok_handle: shop.name.replace(/\s+/g, '').toLowerCase(), // Best effort handle derivation
+                    avatar_url: null, // We could fetch this if available in other APIs
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', accountId);
+
+            if (updateError) {
+                console.error('Error updating account details:', updateError);
+            }
         }
 
         // Redirect back to frontend with success

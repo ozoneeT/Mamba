@@ -264,50 +264,236 @@ router.post('/sync/:accountId', async (req: Request, res: Response) => {
     }
 });
 
+// Cron job endpoint for Vercel
+router.get('/sync/cron', async (req: Request, res: Response) => {
+    // Verify Vercel Cron signature (optional but recommended)
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        // For now, allow open access or check a simple secret
+        // return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        console.log('Starting scheduled sync...');
+
+        // Get all active shops
+        const { data: shops, error } = await supabase
+            .from('tiktok_shops')
+            .select('*');
+
+        if (error) throw error;
+
+        if (!shops || shops.length === 0) {
+            return res.json({ message: 'No shops to sync' });
+        }
+
+        console.log(`Found ${shops.length} shops to sync`);
+
+        // Sync each shop
+        const results = await Promise.allSettled(shops.map(async (shop) => {
+            try {
+                // Refresh token if needed
+                const tokenExpiresAt = new Date(shop.token_expires_at);
+                if (tokenExpiresAt < new Date()) {
+                    const tokenData = await tiktokShopApi.refreshAccessToken(shop.refresh_token);
+
+                    // Update shop with new token
+                    await supabase
+                        .from('tiktok_shops')
+                        .update({
+                            access_token: tokenData.access_token,
+                            refresh_token: tokenData.refresh_token,
+                            token_expires_at: new Date(Date.now() + tokenData.access_token_expire_in * 1000).toISOString(),
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', shop.id);
+
+                    shop.access_token = tokenData.access_token;
+                }
+
+                // Run syncs
+                await Promise.all([
+                    syncOrders(shop),
+                    syncProducts(shop),
+                    syncSettlements(shop)
+                ]);
+
+                return { shop_id: shop.shop_id, status: 'success' };
+            } catch (err: any) {
+                console.error(`Failed to sync shop ${shop.shop_name}:`, err);
+                return { shop_id: shop.shop_id, status: 'failed', error: err.message };
+            }
+        }));
+
+        res.json({
+            success: true,
+            results
+        });
+    } catch (error: any) {
+        console.error('Cron sync failed:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Helper functions for syncing data
 async function syncOrders(shop: any) {
-    // Fetch recent orders and store in database
-    const orders = await tiktokShopApi.makeApiRequest(
-        '/order/202309/orders/search',
-        shop.access_token,
-        shop.shop_cipher,
-        { page_size: 50, page_number: 1 },
-        'POST'
-    );
+    console.log(`Syncing orders for shop ${shop.shop_name}...`);
+    try {
+        // Fetch recent orders (last 30 days)
+        const now = Math.floor(Date.now() / 1000);
+        const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
 
-    // Store in shop_orders table
-    // Implementation depends on your data structure
+        const params = {
+            page_size: 50,
+            page_number: 1,
+            create_time_from: thirtyDaysAgo,
+            create_time_to: now
+        };
+
+        const response = await tiktokShopApi.searchOrders(
+            shop.access_token,
+            shop.shop_cipher,
+            params
+        );
+
+        const orders = response.orders || [];
+        console.log(`Found ${orders.length} orders for shop ${shop.shop_name}`);
+
+        if (orders.length === 0) return;
+
+        // Upsert orders to database
+        for (const order of orders) {
+            const { error } = await supabase
+                .from('shop_orders')
+                .upsert({
+                    shop_id: shop.shop_id,
+                    account_id: shop.account_id,
+                    order_id: order.order_id,
+                    order_status: order.order_status,
+                    order_amount: order.payment_info?.total_amount || 0,
+                    currency: order.payment_info?.currency || 'USD',
+                    payment_method: order.payment_method_name,
+                    shipping_provider: order.shipping_provider,
+                    tracking_number: order.tracking_number,
+                    buyer_uid: order.buyer_uid,
+                    created_time: order.create_time,
+                    updated_time: order.update_time,
+                    line_items: order.line_items,
+                    recipient_address: order.recipient_address,
+                    updated_at: new Date().toISOString()
+                }, {
+                    onConflict: 'order_id'
+                });
+
+            if (error) {
+                console.error(`Error syncing order ${order.order_id}:`, error);
+            }
+        }
+    } catch (error) {
+        console.error(`Error in syncOrders for ${shop.shop_name}:`, error);
+    }
 }
 
 async function syncProducts(shop: any) {
-    // Fetch products and store in database
-    const products = await tiktokShopApi.makeApiRequest(
-        '/product/202309/products/search',
-        shop.access_token,
-        shop.shop_cipher,
-        { page_size: 50, page_number: 1 },
-        'POST'
-    );
+    console.log(`Syncing products for shop ${shop.shop_name}...`);
+    try {
+        const params = {
+            page_size: 50,
+            page_number: 1,
+            search_status: 1 // Active products
+        };
 
-    // Store in shop_products table
+        const response = await tiktokShopApi.searchProducts(
+            shop.access_token,
+            shop.shop_cipher,
+            params
+        );
+
+        const products = response.products || [];
+        console.log(`Found ${products.length} products for shop ${shop.shop_name}`);
+
+        if (products.length === 0) return;
+
+        for (const product of products) {
+            const { error } = await supabase
+                .from('shop_products')
+                .upsert({
+                    shop_id: shop.shop_id,
+                    account_id: shop.account_id,
+                    product_id: product.id,
+                    name: product.name,
+                    sku: product.skus?.[0]?.seller_sku, // Use first SKU as main
+                    status: product.status,
+                    price: product.skus?.[0]?.price?.original_price,
+                    currency: product.skus?.[0]?.price?.currency,
+                    stock_quantity: product.skus?.[0]?.stock_infos?.[0]?.available_stock || 0,
+                    sales_count: product.sales_regions?.[0]?.sales_count || 0, // Simplified
+                    main_image_url: product.images?.[0]?.url_list?.[0],
+                    created_time: product.create_time,
+                    updated_time: product.update_time,
+                    updated_at: new Date().toISOString()
+                }, {
+                    onConflict: 'product_id'
+                });
+
+            if (error) {
+                console.error(`Error syncing product ${product.id}:`, error);
+            }
+        }
+    } catch (error) {
+        console.error(`Error in syncProducts for ${shop.shop_name}:`, error);
+    }
 }
 
 async function syncSettlements(shop: any) {
-    // Fetch settlements and store in database
-    const now = Date.now();
-    const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+    console.log(`Syncing settlements for shop ${shop.shop_name}...`);
+    try {
+        const now = Math.floor(Date.now() / 1000);
+        const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
 
-    const settlements = await tiktokShopApi.makeApiRequest(
-        '/finance/202309/statements',
-        shop.access_token,
-        shop.shop_cipher,
-        {
-            start_time: Math.floor(thirtyDaysAgo / 1000),
-            end_time: Math.floor(now / 1000),
+        const params = {
+            start_time: thirtyDaysAgo,
+            end_time: now,
+            page_size: 20
+        };
+
+        const response = await tiktokShopApi.getSettlements(
+            shop.access_token,
+            shop.shop_cipher,
+            params
+        );
+
+        const settlements = response.statement_list || [];
+        console.log(`Found ${settlements.length} settlements for shop ${shop.shop_name}`);
+
+        if (settlements.length === 0) return;
+
+        for (const settlement of settlements) {
+            const { error } = await supabase
+                .from('shop_settlements')
+                .upsert({
+                    shop_id: shop.shop_id,
+                    account_id: shop.account_id,
+                    settlement_id: settlement.id,
+                    settlement_time: settlement.settlement_time,
+                    currency: settlement.currency,
+                    settlement_amount: settlement.settlement_amount,
+                    revenue_amount: settlement.revenue_amount,
+                    fee_amount: settlement.fee_amount,
+                    adjustment_amount: settlement.adjustment_amount,
+                    status: settlement.status,
+                    created_at: new Date().toISOString()
+                }, {
+                    onConflict: 'settlement_id'
+                });
+
+            if (error) {
+                console.error(`Error syncing settlement ${settlement.id}:`, error);
+            }
         }
-    );
-
-    // Store in shop_settlements table
+    } catch (error) {
+        console.error(`Error in syncSettlements for ${shop.shop_name}:`, error);
+    }
 }
 
 export default router;
