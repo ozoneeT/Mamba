@@ -25,18 +25,17 @@ export function Dashboard() {
   const [selectedShop, setSelectedShop] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
 
-  // Initialize Account (Auto-create if needed)
+  // Initialize Account (Just fetch, don't create)
   useEffect(() => {
     if (profile) {
-      initializeAccount();
+      fetchAccount();
     }
   }, [profile]);
 
-  const initializeAccount = async () => {
+  const fetchAccount = async () => {
     try {
       setInitializing(true);
 
-      // 1. Check for existing accounts
       const { data: userAccounts, error } = await supabase
         .from('user_accounts')
         .select('account_id, accounts(*)')
@@ -49,20 +48,21 @@ export function Dashboard() {
         .filter((acc: Account) => acc.status === 'active') || [];
 
       if (accounts.length > 0) {
-        // Account exists, select the first one
         setSelectedAccount(accounts[0]);
       } else {
-        // No account exists, create default one
-        await createDefaultAccount();
+        // No account found, that's fine. We'll create one when they connect a shop.
+        setSelectedAccount(null);
       }
     } catch (error) {
-      console.error('Error initializing account:', error);
+      console.error('Error fetching account:', error);
     } finally {
       setInitializing(false);
     }
   };
 
-  const createDefaultAccount = async () => {
+  const ensureAccountExists = async (): Promise<Account> => {
+    if (selectedAccount) return selectedAccount;
+
     try {
       // Create the account
       const { data: account, error: accountError } = await supabase
@@ -87,9 +87,10 @@ export function Dashboard() {
       if (linkError) throw linkError;
 
       setSelectedAccount(account);
-    } catch (error) {
-      console.error('Error creating default account:', error);
-      alert('Failed to initialize account. Please try refreshing.');
+      return account;
+    } catch (error: any) {
+      console.error('Error ensuring account exists:', error);
+      throw new Error('Failed to create account record');
     }
   };
 
@@ -97,6 +98,9 @@ export function Dashboard() {
   useEffect(() => {
     if (selectedAccount) {
       fetchShops();
+    } else {
+      setCheckingShop(false);
+      setShowWelcome(true);
     }
   }, [selectedAccount]);
 
@@ -110,48 +114,40 @@ export function Dashboard() {
     const action = params.get('action');
 
     if (tiktokConnected === 'true') {
-      // Clear URL params
       window.history.replaceState({}, '', window.location.pathname);
-
-      // If we have an account ID, we should try to select it if it's not already selected
-      // Or just refresh the connection status if it is selected
       if (selectedAccount && selectedAccount.id === accountId) {
         fetchShops(true);
       } else if (accountId) {
         window.location.reload();
       }
     } else if (tiktokError) {
-      // Clear URL params
       window.history.replaceState({}, '', window.location.pathname);
       alert(`TikTok Connection Error: ${decodeURIComponent(tiktokError)}`);
-    } else if (tiktokCode && action === 'finalize_auth' && selectedAccount) {
-      // Handle TikTok-initiated auth (missing state)
-      // We need to finalize the connection with the current account
-      finalizeAuth(tiktokCode, selectedAccount.id);
+    } else if (tiktokCode && action === 'finalize_auth') {
+      // If we have a code but no selectedAccount (rare race condition or reload), 
+      // we might need to fetch the account first or rely on accountId param if we passed it.
+      // For now, assuming selectedAccount is loaded or will be loaded.
+      if (selectedAccount) {
+        finalizeAuth(tiktokCode, selectedAccount.id);
+      }
     }
   }, [selectedAccount]);
 
   const finalizeAuth = async (code: string, accountId: string) => {
     try {
-      // Clear URL params to avoid double submission
       window.history.replaceState({}, '', window.location.pathname);
-
-      // Show loading state
       setCheckingShop(true);
 
       const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/finalize`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, accountId }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        // Success! Refresh connection status
-        await fetchShops(true); // Pass true to indicate we just connected a shop
+        await fetchShops(true);
         alert('TikTok Shop connected successfully!');
       } else {
         throw new Error(data.error || 'Failed to finalize connection');
@@ -168,53 +164,45 @@ export function Dashboard() {
 
     try {
       setCheckingShop(true);
-
-      // Fetch authorized shops
       const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/shops/${selectedAccount.id}`);
       const data = await response.json();
 
       if (data.success && data.data.length > 0) {
         setShops(data.data);
         setShowWelcome(false);
-
-        // If we just connected a shop, or if there's only one shop, select it automatically
         if (isAfterConnect || data.data.length === 1) {
-          const shopToSelect = data.data[0];
-          setSelectedShop(shopToSelect);
+          setSelectedShop(data.data[0]);
           setViewMode('details');
         }
       } else {
         setShops([]);
-        setShowWelcome(true); // Show welcome screen if no shops
+        setShowWelcome(true);
       }
     } catch (error) {
       console.error('Error fetching shops:', error);
       setShops([]);
-      setShowWelcome(true); // Default to welcome screen on error/empty
+      setShowWelcome(true);
     } finally {
       setCheckingShop(false);
     }
   };
 
-  const handleAddShop = async () => {
-    if (!selectedAccount) return;
-
+  const handleConnectShop = async () => {
     try {
+      const account = await ensureAccountExists();
+
       const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/start`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accountId: selectedAccount.id,
-          accountName: selectedAccount.name
+          accountId: account.id,
+          accountName: account.name
         }),
       });
 
       const data = await response.json();
-      console.log('Auth start response:', data);
 
-      if (data.authUrl || data.url) { // Handle both potential key names
+      if (data.authUrl || data.url) {
         window.location.href = data.authUrl || data.url;
       } else {
         alert(`Failed to start authorization. Response: ${JSON.stringify(data)}`);
@@ -225,77 +213,23 @@ export function Dashboard() {
     }
   };
 
-  const renderView = () => {
-    // Show loading while initializing account
-    if (initializing) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
-        </div>
-      );
-    }
+  if (initializing) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
+      </div>
+    );
+  }
 
-    if (!selectedAccount) {
-      // Should not happen if initialization works, but fallback to WelcomeScreen just in case
-      // passing undefined accountId will trigger the "No Account" state in WelcomeScreen if we wanted,
-      // but here we want to avoid that state if possible.
-      return (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <p className="text-gray-400">Initializing account...</p>
-          </div>
-        </div>
-      );
-    }
-
-    // Show loading while checking shops
-    if (checkingShop) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
-        </div>
-      );
-    }
-
-    // Show Welcome Screen if no shops
-    if (showWelcome) {
-      return (
-        <WelcomeScreen
-          accountId={selectedAccount.id}
-          accountName={selectedAccount.name}
-        />
-      );
-    }
-
-    // Show Shop List if in list mode
-    if (viewMode === 'list') {
-      return (
-        <ShopList
-          shops={shops}
-          onSelectShop={(shop) => {
-            setSelectedShop(shop);
-            setViewMode('details');
-          }}
-          onAddShop={handleAddShop}
-          isLoading={checkingShop}
-        />
-      );
-    }
-
-    // Show Details View
-    switch (activeTab) {
-      case 'overview':
-        return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
-      case 'orders':
-        return <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} />;
-      case 'products':
-        return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
-      case 'profit-loss':
-        return <ProfitLossView account={selectedAccount} shopId={selectedShop?.shop_id} />;
-      default:
-        return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
-    }
-  };
+  // Full screen Welcome if no account or no shops
+  if (!selectedAccount || showWelcome) {
+    return (
+      <WelcomeScreen
+        onConnect={handleConnectShop}
+        isConnecting={false} // You could add state for this
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -329,7 +263,32 @@ export function Dashboard() {
             )}
           </div>
 
-          {renderView()}
+          {checkingShop ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
+            </div>
+          ) : viewMode === 'list' ? (
+            <ShopList
+              shops={shops}
+              onSelectShop={(shop) => {
+                setSelectedShop(shop);
+                setViewMode('details');
+              }}
+              onAddShop={handleConnectShop}
+              isLoading={checkingShop}
+            />
+          ) : (
+            // Details Views
+            (() => {
+              switch (activeTab) {
+                case 'overview': return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                case 'orders': return <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                case 'products': return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                case 'profit-loss': return <ProfitLossView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                default: return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+              }
+            })()
+          )}
         </div>
       </main>
     </div>

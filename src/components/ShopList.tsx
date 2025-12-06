@@ -1,4 +1,3 @@
-import React from 'react';
 import { Plus, ShoppingBag, MapPin, ExternalLink } from 'lucide-react';
 
 interface Shop {
