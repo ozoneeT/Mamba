@@ -23,6 +23,34 @@ export function Dashboard() {
     }
   }, [selectedAccount]);
 
+  // Handle TikTok Auth Redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tiktokConnected = params.get('tiktok_connected');
+    const tiktokError = params.get('tiktok_error');
+    const accountId = params.get('account_id');
+
+    if (tiktokConnected === 'true') {
+      // Clear URL params
+      window.history.replaceState({}, '', window.location.pathname);
+
+      // If we have an account ID, we should try to select it if it's not already selected
+      // Or just refresh the connection status if it is selected
+      if (selectedAccount && selectedAccount.id === accountId) {
+        checkShopConnection();
+      } else if (accountId) {
+        // Ideally we would switch to this account, but for now let's just reload the page
+        // or let the user select it. 
+        // A simple reload might be safest to ensure everything syncs up if the account changed
+        window.location.reload();
+      }
+    } else if (tiktokError) {
+      // Clear URL params
+      window.history.replaceState({}, '', window.location.pathname);
+      alert(`TikTok Connection Error: ${decodeURIComponent(tiktokError)}`);
+    }
+  }, [selectedAccount]);
+
   const checkShopConnection = async () => {
     if (!selectedAccount) return;
 
