@@ -25,19 +25,29 @@ interface TokenResponse {
 
 export class TikTokShopApiService {
     private config: TikTokShopConfig;
+    private isSandbox: boolean;
 
     constructor() {
+        this.isSandbox = process.env.TIKTOK_SHOP_IS_SANDBOX === 'true';
+
         this.config = {
             appKey: process.env.TIKTOK_SHOP_APP_KEY || '',
             appSecret: process.env.TIKTOK_SHOP_APP_SECRET || '',
-            apiBase: process.env.TIKTOK_SHOP_API_BASE || 'https://open-api.tiktokglobalshop.com',
-            authBase: process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com',
+            apiBase: this.isSandbox
+                ? 'https://open-api-sandbox.tiktokglobalshop.com'
+                : (process.env.TIKTOK_SHOP_API_BASE || 'https://open-api.tiktokglobalshop.com'),
+            authBase: this.isSandbox
+                ? 'https://auth-sandbox.tiktok-shops.com'
+                : (process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com'),
         };
 
         // Debug logging
         console.log('TikTok Shop API Service initialized with:');
+        console.log('  Environment:', this.isSandbox ? 'SANDBOX' : 'PRODUCTION');
         console.log('  APP_KEY:', this.config.appKey ? `${this.config.appKey.substring(0, 5)}...` : 'MISSING');
         console.log('  APP_SECRET:', this.config.appSecret ? `${this.config.appSecret.substring(0, 5)}...` : 'MISSING');
+        console.log('  API_BASE:', this.config.apiBase);
+        console.log('  AUTH_BASE:', this.config.authBase);
     }
 
     /**
