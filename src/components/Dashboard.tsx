@@ -69,7 +69,7 @@ export function Dashboard() {
       // Clear URL params to avoid double submission
       window.history.replaceState({}, '', window.location.pathname);
 
-      // Show loading state (you might want to add a specific loading state for this)
+      // Show loading state
       setCheckingShop(true);
 
       const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/finalize`, {
@@ -84,7 +84,7 @@ export function Dashboard() {
 
       if (data.success) {
         // Success! Refresh connection status
-        await fetchShops();
+        await fetchShops(true); // Pass true to indicate we just connected a shop
         alert('TikTok Shop connected successfully!');
       } else {
         throw new Error(data.error || 'Failed to finalize connection');
@@ -96,7 +96,7 @@ export function Dashboard() {
     }
   };
 
-  const fetchShops = async () => {
+  const fetchShops = async (isAfterConnect = false) => {
     if (!selectedAccount) return;
 
     try {
@@ -109,17 +109,24 @@ export function Dashboard() {
       if (data.success && data.data.length > 0) {
         setShops(data.data);
         setShowWelcome(false);
-        // If we only have one shop, maybe select it automatically? 
-        // For now, let's keep the list view as default unless explicitly navigating
+
+        // If we just connected a shop, or if there's only one shop, select it automatically
+        if (isAfterConnect || data.data.length === 1) {
+          // If multiple shops, ideally we'd find the new one. For now, taking the last one or first one is a reasonable guess.
+          // Let's assume the API returns them in some order, or we just pick the first one if it's the only one.
+          // If we just connected, let's pick the most recent one if possible, or just the first one.
+          const shopToSelect = data.data[0]; // You might want to sort by created_at if available
+          setSelectedShop(shopToSelect);
+          setViewMode('details');
+        }
       } else {
         setShops([]);
-        // If no shops, we can show the welcome screen or just the empty list
-        // Let's show the empty list via ShopList component which handles the "Add Shop" button
-        setShowWelcome(false);
+        setShowWelcome(true); // Show welcome screen if no shops
       }
     } catch (error) {
       console.error('Error fetching shops:', error);
       setShops([]);
+      setShowWelcome(true); // Default to welcome screen on error/empty
     } finally {
       setCheckingShop(false);
     }
@@ -172,6 +179,16 @@ export function Dashboard() {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
         </div>
+      );
+    }
+
+    // Show Welcome Screen if no shops
+    if (showWelcome) {
+      return (
+        <WelcomeScreen
+          accountId={selectedAccount.id}
+          accountName={selectedAccount.name}
+        />
       );
     }
 
