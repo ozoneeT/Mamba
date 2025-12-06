@@ -71,6 +71,7 @@ export class TikTokShopApiService {
         const params = new URLSearchParams({
             app_key: this.config.appKey,
             state: state,
+            redirect_uri: redirectUri,
         });
 
         return `${this.config.authBase}/api/v2/authorize?${params.toString()}`;

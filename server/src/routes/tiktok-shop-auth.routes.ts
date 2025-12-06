@@ -28,6 +28,7 @@ router.post('/start', async (req: Request, res: Response) => {
         const stateData = Buffer.from(JSON.stringify({ accountId, random: state })).toString('base64');
 
         const authUrl = tiktokShopApi.generateAuthUrl(stateData);
+        console.log('Generated Auth URL:', authUrl);
 
         res.json({
             success: true,

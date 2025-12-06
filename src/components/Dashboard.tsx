@@ -141,11 +141,12 @@ export function Dashboard() {
       });
 
       const data = await response.json();
+      console.log('Auth start response:', data);
 
-      if (data.url) {
-        window.location.href = data.url;
+      if (data.authUrl || data.url) { // Handle both potential key names
+        window.location.href = data.authUrl || data.url;
       } else {
-        alert(`Failed to start authorization: ${data.error || 'Unknown error'}`);
+        alert(`Failed to start authorization. Response: ${JSON.stringify(data)}`);
       }
     } catch (error: any) {
       console.error('Error starting auth:', error);
