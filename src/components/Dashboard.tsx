@@ -164,12 +164,7 @@ export function Dashboard() {
   const renderView = () => {
     if (!selectedAccount) {
       return (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <p className="text-gray-400 text-lg">No account selected</p>
-            <p className="text-gray-500 text-sm mt-2">Please select an account to view analytics</p>
-          </div>
-        </div>
+        <WelcomeScreen />
       );
     }
 

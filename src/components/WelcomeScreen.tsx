@@ -3,18 +3,20 @@ import { useAuth } from '../contexts/AuthContext';
 import { Store, ShoppingBag, Package, TrendingUp } from 'lucide-react';
 
 interface WelcomeScreenProps {
-    accountId: string;
-    accountName: string;
+    accountId?: string;
+    accountName?: string;
     onComplete?: () => void;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export default function WelcomeScreen({ accountId, accountName }: WelcomeScreenProps) {
-    const { profile } = useAuth();
+    const { profile, signOut } = useAuth();
     const [connecting, setConnecting] = useState(false);
 
     const handleConnectShop = async () => {
+        if (!accountId) return;
+
         try {
             setConnecting(true);
 
@@ -47,7 +49,15 @@ export default function WelcomeScreen({ accountId, accountName }: WelcomeScreenP
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 flex items-center justify-center p-6">
             <div className="max-w-4xl w-full">
                 {/* Welcome Header */}
-                <div className="text-center mb-8">
+                <div className="text-center mb-8 relative">
+                    <div className="absolute top-0 right-0">
+                        <button
+                            onClick={() => signOut()}
+                            className="text-sm text-gray-400 hover:text-white transition-colors"
+                        >
+                            Sign Out
+                        </button>
+                    </div>
                     <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-pink-500 to-red-500 rounded-2xl mb-4">
                         <Store className="w-10 h-10 text-white" />
                     </div>
@@ -99,21 +109,30 @@ export default function WelcomeScreen({ accountId, accountName }: WelcomeScreenP
 
                     {/* Connection Component */}
                     <div className="bg-gray-900/50 rounded-xl p-6 border border-gray-700">
-                        <h3 className="text-lg font-semibold text-white mb-4">Account: {accountName}</h3>
-                        <button
-                            onClick={handleConnectShop}
-                            disabled={connecting}
-                            className="w-full bg-gradient-to-r from-pink-500 to-red-500 text-white px-6 py-4 rounded-xl font-semibold text-lg hover:from-pink-600 hover:to-red-600 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                        >
-                            {connecting ? (
-                                <span className="flex items-center justify-center gap-2">
-                                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                                    Connecting...
-                                </span>
-                            ) : (
-                                'Connect TikTok Shop'
-                            )}
-                        </button>
+                        {accountId ? (
+                            <>
+                                <h3 className="text-lg font-semibold text-white mb-4">Account: {accountName}</h3>
+                                <button
+                                    onClick={handleConnectShop}
+                                    disabled={connecting}
+                                    className="w-full bg-gradient-to-r from-pink-500 to-red-500 text-white px-6 py-4 rounded-xl font-semibold text-lg hover:from-pink-600 hover:to-red-600 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                                >
+                                    {connecting ? (
+                                        <span className="flex items-center justify-center gap-2">
+                                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                                            Connecting...
+                                        </span>
+                                    ) : (
+                                        'Connect TikTok Shop'
+                                    )}
+                                </button>
+                            </>
+                        ) : (
+                            <div className="text-center">
+                                <h3 className="text-lg font-semibold text-white mb-2">No Account Selected</h3>
+                                <p className="text-gray-400 mb-4">Please create or select an account above to connect your shop.</p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Info Box */}
