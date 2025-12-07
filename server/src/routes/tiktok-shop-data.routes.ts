@@ -136,17 +136,39 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
             page_number: parseInt(page as string),
         };
 
-        const products = await tiktokShopApi.makeApiRequest(
-            '/product/202309/products/search',
+        const response = await tiktokShopApi.makeApiRequest(
+            '/products/search',
             shop.access_token,
             shop.shop_cipher,
             params,
             'POST'
         );
 
+        // Transform the response to match frontend expectations
+        const products = (response.products || []).map((p: any) => {
+            const mainSku = p.skus?.[0] || {};
+            const priceInfo = mainSku.price || {};
+            const stockInfo = mainSku.stock_infos?.[0] || {};
+
+            return {
+                product_id: p.id,
+                product_name: p.name,
+                price: parseFloat(priceInfo.original_price || '0'),
+                currency: priceInfo.currency || 'USD',
+                stock: stockInfo.available_stock || 0,
+                sales_count: 0, // Sales count not directly available in this endpoint response structure
+                status: p.status === 4 ? 'active' : 'inactive', // Map status 4 to active
+                images: [], // Images not in the search response, would need detail call
+                create_time: p.create_time
+            };
+        });
+
         res.json({
             success: true,
-            data: products,
+            data: {
+                products,
+                total: response.total
+            },
         });
     } catch (error: any) {
         console.error('Error fetching products:', error);

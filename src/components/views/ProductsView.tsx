@@ -22,6 +22,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001
 export function ProductsView({ account, shopId }: ProductsViewProps) {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (shopId) {
@@ -32,14 +33,20 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
     const fetchProducts = async () => {
         try {
             setLoading(true);
+            setError(null);
             const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/products/${account.id}?shopId=${shopId}&page=1&pageSize=50`);
             const result = await response.json();
 
             if (result.success && result.data?.products) {
                 setProducts(result.data.products);
+            } else {
+                // Handle case where success is false or data is missing
+                console.error('Failed to fetch products:', result);
+                setError('Failed to load products. Please try again later.');
             }
         } catch (error) {
             console.error('Error fetching products:', error);
+            setError('An error occurred while fetching products.');
         } finally {
             setLoading(false);
         }
@@ -61,15 +68,38 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
         );
     }
 
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center h-64 text-center">
+                <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+                <p className="text-red-400 text-lg font-medium">{error}</p>
+                <button
+                    onClick={fetchProducts}
+                    className="mt-4 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                    Retry
+                </button>
+            </div>
+        );
+    }
+
     const lowStockProducts = getLowStockProducts();
 
     return (
         <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-white">Products</h2>
+            <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">Products</h2>
+                <button
+                    onClick={fetchProducts}
+                    className="text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                    Refresh
+                </button>
+            </div>
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/30 rounded-xl p-6">
+                <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/30 rounded-xl p-6 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-blue-500/20 rounded-lg">
                             <Package className="w-6 h-6 text-blue-400" />
@@ -81,7 +111,7 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 rounded-xl p-6">
+                <div className="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 rounded-xl p-6 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-yellow-500/20 rounded-lg">
                             <AlertCircle className="w-6 h-6 text-yellow-400" />
@@ -93,7 +123,7 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-xl p-6">
+                <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-xl p-6 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-green-500/20 rounded-lg">
                             <DollarSign className="w-6 h-6 text-green-400" />
@@ -108,7 +138,7 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
 
             {/* Low Stock Alert */}
             {lowStockProducts.length > 0 && (
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-yellow-400" />
                         <p className="text-yellow-400 font-medium">
@@ -120,7 +150,7 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
 
             {/* Products Grid */}
             {products.length === 0 ? (
-                <div className="text-center py-12">
+                <div className="text-center py-12 bg-gray-800/50 rounded-xl border border-gray-700 border-dashed">
                     <Package className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                     <p className="text-gray-400 text-lg">No products found</p>
                     <p className="text-gray-500 text-sm mt-2">Products will appear here once you connect your TikTok Shop</p>
@@ -128,37 +158,50 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {products.map((product) => (
-                        <div key={product.product_id} className="bg-gray-800 rounded-xl overflow-hidden hover:ring-2 hover:ring-pink-500 transition-all">
-                            <div className="aspect-square bg-gray-900 flex items-center justify-center">
-                                {product.images && product.images[0] ? (
-                                    <img src={product.images[0]} alt={product.product_name} className="w-full h-full object-cover" />
+                        <div key={product.product_id} className="group bg-gray-800/50 border border-gray-700/50 rounded-xl overflow-hidden hover:ring-2 hover:ring-pink-500/50 hover:bg-gray-800 transition-all duration-300">
+                            <div className="aspect-square bg-gray-900 flex items-center justify-center relative overflow-hidden">
+                                {product.images && product.images.length > 0 ? (
+                                    <img
+                                        src={product.images[0]}
+                                        alt={product.product_name}
+                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                    />
                                 ) : (
-                                    <Package className="w-16 h-16 text-gray-600" />
+                                    <Package className="w-16 h-16 text-gray-700" />
                                 )}
-                            </div>
-                            <div className="p-4">
-                                <h3 className="text-white font-semibold mb-2 line-clamp-2">{product.product_name}</h3>
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-2xl font-bold text-pink-400">${product.price?.toFixed(2)}</span>
-                                    <span className={`px-2 py-1 rounded text-xs font-medium ${product.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'
+                                <div className="absolute top-2 right-2">
+                                    <span className={`px-2 py-1 rounded-md text-xs font-medium backdrop-blur-md ${product.status === 'active'
+                                            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                            : 'bg-gray-700/80 text-gray-400 border border-gray-600'
                                         }`}>
                                         {product.status}
                                     </span>
                                 </div>
-                                <div className="flex items-center justify-between text-sm">
-                                    <div className="flex items-center gap-1 text-gray-400">
-                                        <Package className="w-4 h-4" />
-                                        <span>Stock: {product.stock}</span>
+                            </div>
+                            <div className="p-4">
+                                <h3 className="text-white font-medium mb-1 line-clamp-2 h-12" title={product.product_name}>
+                                    {product.product_name}
+                                </h3>
+                                <div className="flex items-end justify-between mb-4">
+                                    <span className="text-xl font-bold text-pink-400">
+                                        {product.currency === 'USD' ? '$' : product.currency}
+                                        {product.price?.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-sm pt-3 border-t border-gray-700/50">
+                                    <div className="flex items-center gap-2 text-gray-400">
+                                        <Package className="w-4 h-4 text-gray-500" />
+                                        <span>{product.stock} in stock</span>
                                     </div>
-                                    <div className="flex items-center gap-1 text-gray-400">
-                                        <TrendingUp className="w-4 h-4" />
+                                    <div className="flex items-center gap-2 text-gray-400 justify-end">
+                                        <TrendingUp className="w-4 h-4 text-gray-500" />
                                         <span>{product.sales_count || 0} sold</span>
                                     </div>
                                 </div>
                                 {product.stock < 10 && product.status === 'active' && (
-                                    <div className="mt-2 flex items-center gap-1 text-yellow-400 text-xs">
+                                    <div className="mt-3 flex items-center gap-1.5 text-yellow-400 text-xs bg-yellow-500/10 px-2 py-1 rounded border border-yellow-500/20">
                                         <AlertCircle className="w-3 h-3" />
-                                        <span>Low stock!</span>
+                                        <span>Low stock warning</span>
                                     </div>
                                 )}
                             </div>

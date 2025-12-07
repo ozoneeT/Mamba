@@ -317,7 +317,12 @@ export class TikTokShopApiService {
      * POST /product/202309/products/search
      */
     async searchProducts(accessToken: string, shopCipher: string, params: any): Promise<any> {
-        return this.makeApiRequest('/product/202309/products/search', accessToken, shopCipher, params, 'POST');
+        // Add version parameter if not present
+        const queryParams = {
+            ...params,
+            version: params.version || '202212'
+        };
+        return this.makeApiRequest('/products/search', accessToken, shopCipher, queryParams, 'POST');
     }
 
     /**
