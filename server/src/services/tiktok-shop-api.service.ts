@@ -183,16 +183,35 @@ export class TikTokShopApiService {
             const timestamp = Math.floor(Date.now() / 1000);
             const path = `/api${endpoint}`;
 
-            // Add required parameters
-            const allParams = {
+            // Common system params
+            const systemParams = {
                 app_key: this.config.appKey,
                 timestamp: timestamp.toString(),
                 shop_cipher: shopCipher,
-                ...params,
             };
 
+            let signatureParams: any = { ...systemParams };
+            let queryParams: any = { ...systemParams, access_token: accessToken };
+            let bodyParams: any = {};
+
+            if (method === 'GET') {
+                // For GET, all params are in query and signed
+                signatureParams = { ...signatureParams, ...params };
+                queryParams = { ...queryParams, ...params };
+            } else {
+                // For POST, separate version (query) from others (body)
+                const { version, ...rest } = params;
+                if (version) {
+                    signatureParams.version = version;
+                    queryParams.version = version;
+                }
+                // Body params are NOT signed for JSON POST
+                bodyParams = rest;
+            }
+
             // Generate signature
-            const signature = this.generateSignature(path, allParams);
+            const signature = this.generateSignature(path, signatureParams);
+            queryParams.sign = signature;
 
             const url = `${this.config.apiBase}${path}`;
 
@@ -204,26 +223,10 @@ export class TikTokShopApiService {
             let response;
             if (method === 'GET') {
                 response = await axios.get(url, {
-                    params: { ...allParams, sign: signature },
+                    params: queryParams,
                     headers,
                 });
             } else {
-                // For POST requests, separate common params (Query) from business params (Body)
-                // Extract version if present in params to put in query
-                const { version, ...bodyParams } = params;
-
-                const queryParams: any = {
-                    app_key: this.config.appKey,
-                    timestamp: timestamp.toString(),
-                    shop_cipher: shopCipher,
-                    sign: signature,
-                    access_token: accessToken, // Add access_token to query as well, matching curl
-                };
-
-                if (version) {
-                    queryParams.version = version;
-                }
-
                 response = await axios.post(
                     url,
                     bodyParams,
