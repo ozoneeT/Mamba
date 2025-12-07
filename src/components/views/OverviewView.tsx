@@ -6,6 +6,7 @@ import { Account } from '../../lib/supabase';
 interface OverviewViewProps {
   account: Account;
   shopId?: string;
+  onNavigate?: (tab: string) => void;
 }
 
 interface ShopMetrics {
@@ -19,7 +20,7 @@ interface ShopMetrics {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
-export function OverviewView({ account, shopId }: OverviewViewProps) {
+export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps) {
   const [metrics, setMetrics] = useState<ShopMetrics>({
     totalOrders: 0,
     totalRevenue: 0,
@@ -195,6 +196,7 @@ export function OverviewView({ account, shopId }: OverviewViewProps) {
             icon={ShoppingBag}
             iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
             subtitle="Completed orders"
+            onClick={() => onNavigate?.('orders')}
           />
           <StatCard
             title="Avg Order Value"
@@ -217,6 +219,7 @@ export function OverviewView({ account, shopId }: OverviewViewProps) {
             icon={Package}
             iconColor="bg-gradient-to-r from-orange-500 to-red-500"
             subtitle="Active listings"
+            onClick={() => onNavigate?.('products')}
           />
           <StatCard
             title="Conversion Rate"

@@ -284,7 +284,7 @@ export function Dashboard() {
             // Details Views
             (() => {
               switch (activeTab) {
-                case 'overview': return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                case 'overview': return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} onNavigate={setActiveTab} />;
                 case 'orders': return <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} />;
                 case 'products': return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
                 case 'profit-loss': return <ProfitLossView account={selectedAccount} shopId={selectedShop?.shop_id} />;

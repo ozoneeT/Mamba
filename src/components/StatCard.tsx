@@ -7,22 +7,25 @@ interface StatCardProps {
   icon: LucideIcon;
   iconColor: string;
   subtitle?: string;
+  onClick?: () => void;
 }
 
-export function StatCard({ title, value, change, icon: Icon, iconColor, subtitle }: StatCardProps) {
+export function StatCard({ title, value, change, icon: Icon, iconColor, subtitle, onClick }: StatCardProps) {
   const isPositive = change !== undefined && change >= 0;
   const showChange = change !== undefined && change !== 0;
 
   return (
-    <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-gray-600 transition-all">
+    <div
+      onClick={onClick}
+      className={`bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-gray-600 transition-all ${onClick ? 'cursor-pointer hover:bg-gray-750' : ''}`}
+    >
       <div className="flex items-start justify-between mb-4">
         <div className={`p-3 rounded-lg ${iconColor}`}>
           <Icon className="w-6 h-6 text-white" />
         </div>
         {showChange && (
-          <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-semibold ${
-            isPositive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-          }`}>
+          <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-semibold ${isPositive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+            }`}>
             <span>{isPositive ? '+' : ''}{change.toFixed(1)}%</span>
           </div>
         )}
