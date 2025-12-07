@@ -208,17 +208,27 @@ export class TikTokShopApiService {
                     headers,
                 });
             } else {
-                // For POST requests, we need to handle the body in signature generation if strictly following the guide
-                // But for now, let's assume the user's guide for GET requests (authorized shops)
+                // For POST requests, separate common params (Query) from business params (Body)
+                // Extract version if present in params to put in query
+                const { version, ...bodyParams } = params;
+
+                const queryParams: any = {
+                    app_key: this.config.appKey,
+                    timestamp: timestamp.toString(),
+                    shop_cipher: shopCipher,
+                    sign: signature,
+                    access_token: accessToken, // Add access_token to query as well, matching curl
+                };
+
+                if (version) {
+                    queryParams.version = version;
+                }
+
                 response = await axios.post(
                     url,
-                    params,
+                    bodyParams,
                     {
-                        params: {
-                            app_key: this.config.appKey,
-                            timestamp: timestamp.toString(),
-                            sign: signature,
-                        },
+                        params: queryParams,
                         headers,
                     }
                 );
