@@ -93,6 +93,7 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
         const params: any = {
             page_size: parseInt(pageSize as string),
             page_number: parseInt(page as string),
+            shop_id: shop.shop_id // Add shop_id
         };
 
         if (status) {
@@ -100,7 +101,7 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
         }
 
         const orders = await tiktokShopApi.makeApiRequest(
-            '/order/202309/orders/search',
+            '/orders/search', // Updated endpoint
             shop.access_token,
             shop.shop_cipher,
             params,
@@ -134,6 +135,7 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
         const params = {
             page_size: parseInt(pageSize as string),
             page_number: parseInt(page as string),
+            shop_id: shop.shop_id // Add shop_id
         };
 
         const response = await tiktokShopApi.makeApiRequest(

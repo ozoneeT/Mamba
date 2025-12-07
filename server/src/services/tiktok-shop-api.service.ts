@@ -199,12 +199,19 @@ export class TikTokShopApiService {
                 signatureParams = { ...signatureParams, ...params };
                 queryParams = { ...queryParams, ...params };
             } else {
-                // For POST, separate version (query) from others (body)
-                const { version, ...rest } = params;
+                // For POST, separate special params (query) from business params (body)
+                const { version, shop_id, ...rest } = params;
+
                 if (version) {
                     signatureParams.version = version;
                     queryParams.version = version;
                 }
+
+                if (shop_id) {
+                    signatureParams.shop_id = shop_id;
+                    queryParams.shop_id = shop_id;
+                }
+
                 // Body params are NOT signed for JSON POST
                 bodyParams = rest;
             }
@@ -312,7 +319,11 @@ export class TikTokShopApiService {
      * POST /order/202309/orders/search
      */
     async searchOrders(accessToken: string, shopCipher: string, params: any): Promise<any> {
-        return this.makeApiRequest('/order/202309/orders/search', accessToken, shopCipher, params, 'POST');
+        const queryParams = {
+            ...params,
+            version: params.version || '202212'
+        };
+        return this.makeApiRequest('/orders/search', accessToken, shopCipher, queryParams, 'POST');
     }
 
     /**
