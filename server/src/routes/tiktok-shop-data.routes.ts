@@ -446,14 +446,14 @@ async function syncProducts(shop: any) {
                     shop_id: shop.shop_id,
                     account_id: shop.account_id,
                     product_id: product.id,
-                    name: product.name,
+                    name: product.title, // 202502 uses 'title'
                     sku: product.skus?.[0]?.seller_sku, // Use first SKU as main
                     status: product.status,
-                    price: product.skus?.[0]?.price?.original_price,
+                    price: product.skus?.[0]?.price?.tax_exclusive_price, // 202502 uses 'tax_exclusive_price'
                     currency: product.skus?.[0]?.price?.currency,
-                    stock_quantity: product.skus?.[0]?.stock_infos?.[0]?.available_stock || 0,
+                    stock_quantity: product.skus?.[0]?.inventory?.[0]?.quantity || 0, // 202502 uses 'inventory' and 'quantity'
                     sales_count: product.sales_regions?.[0]?.sales_count || 0, // Simplified
-                    main_image_url: product.images?.[0]?.url_list?.[0],
+                    main_image_url: product.images?.[0]?.url_list?.[0], // Check if images structure changed too, but keeping for now
                     created_time: product.create_time,
                     updated_time: product.update_time,
                     updated_at: new Date().toISOString()

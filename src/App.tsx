@@ -1,9 +1,18 @@
+import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
+import { useShopStore } from './store/useShopStore';
 
 function AppContent() {
   const { user, loading } = useAuth();
+  const { fetchShopData } = useShopStore();
+
+  useEffect(() => {
+    if (user) {
+      fetchShopData(user.id);
+    }
+  }, [user, fetchShopData]);
 
   if (loading) {
     return (

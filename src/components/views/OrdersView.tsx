@@ -1,55 +1,26 @@
 import { useState, useEffect } from 'react';
 import { ShoppingBag, Package, Clock, CheckCircle, XCircle, TruckIcon } from 'lucide-react';
 import { Account } from '../../lib/supabase';
+import { useShopStore } from '../../store/useShopStore';
 
 interface OrdersViewProps {
     account: Account;
     shopId?: string;
 }
 
-interface Order {
-    order_id: string;
-    order_status: string;
-    create_time: string;
-    total_amount: number;
-    currency: string;
-    line_items: any[];
-    buyer_info: any;
-}
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
-
-export function OrdersView({ account, shopId }: OrdersViewProps) {
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [loading, setLoading] = useState(true);
+export function OrdersView({ account }: OrdersViewProps) {
+    const { orders, isLoading: loading, fetchShopData } = useShopStore();
     const [statusFilter, setStatusFilter] = useState('all');
 
     useEffect(() => {
-        if (shopId) {
-            fetchOrders();
+        if (orders.length === 0 && !loading && account.id) {
+            fetchShopData(account.id);
         }
-    }, [account.id, statusFilter, shopId]);
+    }, [account.id, orders.length, loading, fetchShopData]);
 
-    const fetchOrders = async () => {
-        try {
-            setLoading(true);
-            const params = new URLSearchParams({ shopId: shopId || '', page: '1', pageSize: '50' });
-            if (statusFilter !== 'all') {
-                params.append('status', statusFilter);
-            }
-
-            const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/orders/${account.id}?${params}`);
-            const result = await response.json();
-
-            if (result.success && result.data?.orders) {
-                setOrders(result.data.orders);
-            }
-        } catch (error) {
-            console.error('Error fetching orders:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const filteredOrders = statusFilter === 'all'
+        ? orders
+        : orders.filter(order => order.order_status === statusFilter);
 
     const getStatusIcon = (status: string) => {
         switch (status.toLowerCase()) {
@@ -73,8 +44,12 @@ export function OrdersView({ account, shopId }: OrdersViewProps) {
         return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     };
 
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('en-US', {
+    const formatDate = (timestamp: string | number) => {
+        const date = typeof timestamp === 'number'
+            ? new Date(timestamp * 1000) // Assuming unix timestamp in seconds
+            : new Date(timestamp);
+
+        return date.toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'short',
             day: 'numeric',
@@ -112,7 +87,7 @@ export function OrdersView({ account, shopId }: OrdersViewProps) {
                 </div>
             </div>
 
-            {orders.length === 0 ? (
+            {filteredOrders.length === 0 ? (
                 <div className="text-center py-12">
                     <ShoppingBag className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                     <p className="text-gray-400 text-lg">No orders found</p>
@@ -143,7 +118,7 @@ export function OrdersView({ account, shopId }: OrdersViewProps) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-700">
-                            {orders.map((order) => (
+                            {filteredOrders.map((order) => (
                                 <tr key={order.order_id} className="hover:bg-gray-750 transition-colors">
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-white">{order.order_id}</div>
@@ -155,14 +130,14 @@ export function OrdersView({ account, shopId }: OrdersViewProps) {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-300">{formatDate(order.create_time)}</div>
+                                        <div className="text-sm text-gray-300">{formatDate(order.created_time.toString())}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-300">{order.line_items?.length || 0} items</div>
+                                        <div className="text-sm text-gray-300">View Details</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-white">
-                                            {order.currency} {order.total_amount?.toFixed(2)}
+                                            {order.currency} {order.order_amount?.toFixed(2)}
                                         </div>
                                     </td>
                                 </tr>

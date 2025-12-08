@@ -167,12 +167,6 @@ export class TikTokShopApiService {
         // 6. Wrap with App Secret
         stringToSign = `${this.config.appSecret}${stringToSign}${this.config.appSecret}`;
 
-        // DEBUG: Uncomment to see exactly what is being signed
-        console.log(`[TikTokSign] Path: ${path}`);
-        console.log(`[TikTokSign] Params:`, params);
-        console.log(`[TikTokSign] Body:`, body);
-        console.log(`[TikTokSign] StringToSign: ${stringToSign}`);
-
         // 7. HMAC-SHA256
         const hmac = crypto.createHmac('sha256', this.config.appSecret);
         hmac.update(stringToSign);

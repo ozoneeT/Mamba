@@ -1,64 +1,36 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Package, AlertCircle, TrendingUp, DollarSign } from 'lucide-react';
 import { Account } from '../../lib/supabase';
+import { useShopStore } from '../../store/useShopStore';
 
 interface ProductsViewProps {
     account: Account;
     shopId?: string;
 }
 
-interface Product {
-    product_id: string;
-    product_name: string;
-    price: number;
-    currency: string;
-    stock: number;
-    sales_count: number;
-    status: string;
-    images?: string[];
-}
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
-
-export function ProductsView({ account, shopId }: ProductsViewProps) {
-    const [products, setProducts] = useState<Product[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+export function ProductsView({ account }: ProductsViewProps) {
+    const { products, isLoading: loading, error, fetchShopData } = useShopStore();
 
     useEffect(() => {
-        if (shopId) {
-            fetchProducts();
+        // If products are empty and not loading, try fetching
+        if (products.length === 0 && !loading && !error && account.id) {
+            fetchShopData(account.id);
         }
-    }, [account.id, shopId]);
+    }, [account.id, products.length, loading, error, fetchShopData]);
 
-    const fetchProducts = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/products/${account.id}?shopId=${shopId}&page=1&pageSize=50`);
-            const result = await response.json();
-
-            if (result.success && result.data?.products) {
-                setProducts(result.data.products);
-            } else {
-                // Handle case where success is false or data is missing
-                console.error('Failed to fetch products:', result);
-                setError('Failed to load products. Please try again later.');
-            }
-        } catch (error) {
-            console.error('Error fetching products:', error);
-            setError('An error occurred while fetching products.');
-        } finally {
-            setLoading(false);
+    // Removed local fetchProducts logic as it is now handled by the store
+    const handleRefresh = () => {
+        if (account.id) {
+            fetchShopData(account.id);
         }
     };
 
     const getLowStockProducts = () => {
-        return products.filter(p => p.stock < 10 && p.status === 'active');
+        return products.filter(p => p.stock_quantity < 10 && p.status === 'active');
     };
 
     const getTotalValue = () => {
-        return products.reduce((sum, p) => sum + (p.price * p.stock), 0);
+        return products.reduce((sum, p) => sum + (p.price * p.stock_quantity), 0);
     };
 
     if (loading) {
@@ -75,7 +47,7 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                 <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
                 <p className="text-red-400 text-lg font-medium">{error}</p>
                 <button
-                    onClick={fetchProducts}
+                    onClick={handleRefresh}
                     className="mt-4 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
                 >
                     Retry
@@ -91,7 +63,7 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
             <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-white">Products</h2>
                 <button
-                    onClick={fetchProducts}
+                    onClick={handleRefresh}
                     className="text-sm text-gray-400 hover:text-white transition-colors"
                 >
                     Refresh
@@ -161,10 +133,10 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                     {products.map((product) => (
                         <div key={product.product_id} className="group bg-gray-800/50 border border-gray-700/50 rounded-xl overflow-hidden hover:ring-2 hover:ring-pink-500/50 hover:bg-gray-800 transition-all duration-300">
                             <div className="aspect-square bg-gray-900 flex items-center justify-center relative overflow-hidden">
-                                {product.images && product.images.length > 0 ? (
+                                {product.main_image_url ? (
                                     <img
-                                        src={product.images[0]}
-                                        alt={product.product_name}
+                                        src={product.main_image_url}
+                                        alt={product.name}
                                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                     />
                                 ) : (
@@ -180,8 +152,8 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                                 </div>
                             </div>
                             <div className="p-4">
-                                <h3 className="text-white font-medium mb-1 line-clamp-2 h-12" title={product.product_name}>
-                                    {product.product_name}
+                                <h3 className="text-white font-medium mb-1 line-clamp-2 h-12" title={product.name}>
+                                    {product.name}
                                 </h3>
                                 <div className="flex items-end justify-between mb-4">
                                     <span className="text-xl font-bold text-pink-400">
@@ -192,14 +164,14 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                                 <div className="grid grid-cols-2 gap-2 text-sm pt-3 border-t border-gray-700/50">
                                     <div className="flex items-center gap-2 text-gray-400">
                                         <Package className="w-4 h-4 text-gray-500" />
-                                        <span>{product.stock} in stock</span>
+                                        <span>{product.stock_quantity} in stock</span>
                                     </div>
                                     <div className="flex items-center gap-2 text-gray-400 justify-end">
                                         <TrendingUp className="w-4 h-4 text-gray-500" />
                                         <span>{product.sales_count || 0} sold</span>
                                     </div>
                                 </div>
-                                {product.stock < 10 && product.status === 'active' && (
+                                {product.stock_quantity < 10 && product.status === 'active' && (
                                     <div className="mt-3 flex items-center gap-1.5 text-yellow-400 text-xs bg-yellow-500/10 px-2 py-1 rounded border border-yellow-500/20">
                                         <AlertCircle className="w-3 h-3" />
                                         <span>Low stock warning</span>
