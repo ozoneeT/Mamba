@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { Package, AlertCircle, TrendingUp, DollarSign } from 'lucide-react';
 import { Account } from '../../lib/supabase';
 import { useShopStore } from '../../store/useShopStore';
@@ -9,7 +8,12 @@ interface ProductsViewProps {
 }
 
 export function ProductsView({ account }: ProductsViewProps) {
-    const { products, isLoading: loading, error, fetchShopData } = useShopStore();
+    const products = useShopStore(state => state.products);
+    const isLoading = useShopStore(state => state.isLoading);
+    const error = useShopStore(state => state.error);
+    const fetchShopData = useShopStore(state => state.fetchShopData);
+
+    console.log('[ProductsView] Rendering with:', { productsCount: products.length, isLoading, error });
 
     // No automatic fetch - data is loaded by App.tsx on mount
     // Only fetch when user explicitly clicks refresh
@@ -27,7 +31,7 @@ export function ProductsView({ account }: ProductsViewProps) {
         return products.reduce((sum, p) => sum + (p.price * p.stock_quantity), 0);
     };
 
-    if (loading) {
+    if (isLoading) {
         return (
             <div className="flex items-center justify-center h-64">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>

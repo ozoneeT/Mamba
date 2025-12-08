@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
@@ -6,13 +6,16 @@ import { useShopStore } from './store/useShopStore';
 
 function AppContent() {
   const { user, loading } = useAuth();
-  const { fetchShopData } = useShopStore();
+  const fetchShopData = useShopStore(state => state.fetchShopData);
+  const hasFetched = useRef(false);
 
   useEffect(() => {
-    if (user) {
+    if (user && !hasFetched.current) {
+      console.log('[App] Fetching shop data on initial load');
       fetchShopData(user.id);
+      hasFetched.current = true;
     }
-  }, [user, fetchShopData]);
+  }, [user?.id]); // Only depend on user.id, not the function
 
   if (loading) {
     return (

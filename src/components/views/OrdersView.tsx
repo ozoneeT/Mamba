@@ -9,8 +9,11 @@ interface OrdersViewProps {
 }
 
 export function OrdersView({ account }: OrdersViewProps) {
-    const { orders, isLoading: loading } = useShopStore();
+    const orders = useShopStore(state => state.orders);
+    const isLoading = useShopStore(state => state.isLoading);
     const [statusFilter, setStatusFilter] = useState('all');
+
+    console.log('[OrdersView] Rendering with:', { ordersCount: orders.length, isLoading });
 
     // No automatic fetch - data is loaded by App.tsx on mount
     // Data is already in the global store
@@ -60,7 +63,7 @@ export function OrdersView({ account }: OrdersViewProps) {
         });
     };
 
-    if (loading) {
+    if (isLoading) {
         return (
             <div className="flex items-center justify-center h-64">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
