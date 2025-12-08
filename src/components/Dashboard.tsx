@@ -15,7 +15,7 @@ import { useShopStore } from '../store/useShopStore';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function Dashboard() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('overview');
   // We still keep selectedAccount state to allow switching if we ever re-enable it, 
@@ -35,14 +35,14 @@ export function Dashboard() {
     isLoading: isLoadingAccounts,
     isFetched: isAccountsFetched
   } = useQuery({
-    queryKey: ['accounts', profile?.id],
+    queryKey: ['accounts', user?.id],
     queryFn: async () => {
-      if (!profile?.id) return [];
+      if (!user?.id) return [];
 
       const { data: userAccounts, error } = await supabase
         .from('user_accounts')
         .select('account_id, accounts(*)')
-        .eq('user_id', profile.id);
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -50,7 +50,7 @@ export function Dashboard() {
         ?.map((ua: any) => ua.accounts)
         .filter((acc: Account) => acc.status === 'active') || [];
     },
-    enabled: !!profile?.id,
+    enabled: !!user?.id,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
@@ -141,14 +141,14 @@ export function Dashboard() {
       const { error: linkError } = await supabase
         .from('user_accounts')
         .insert({
-          user_id: profile?.id,
+          user_id: user?.id,
           account_id: account.id,
         });
 
       if (linkError) throw linkError;
 
       // Invalidate accounts query to refresh the list and trigger the useEffect to set selectedAccount
-      await queryClient.invalidateQueries({ queryKey: ['accounts', profile?.id] });
+      await queryClient.invalidateQueries({ queryKey: ['accounts', user?.id] });
 
       // We return the account directly here because invalidation is async and we need it now
       setSelectedAccount(account);
