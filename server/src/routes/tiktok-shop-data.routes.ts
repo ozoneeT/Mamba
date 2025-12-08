@@ -101,7 +101,7 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
         }
 
         const orders = await tiktokShopApi.makeApiRequest(
-            '/orders/search', // Updated endpoint
+            '/order/202309/orders/search', // Updated endpoint
             shop.access_token,
             shop.shop_cipher,
             params,
@@ -139,7 +139,7 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
         };
 
         const response = await tiktokShopApi.makeApiRequest(
-            '/products/search',
+            '/product/202309/products/search',
             shop.access_token,
             shop.shop_cipher,
             params,

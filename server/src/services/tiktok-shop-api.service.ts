@@ -181,7 +181,8 @@ export class TikTokShopApiService {
     ): Promise<any> {
         try {
             const timestamp = Math.floor(Date.now() / 1000);
-            const path = `/api${endpoint}`;
+            // FIX: Do not prepend '/api' manually. The endpoint passed should contain the full path.
+            const path = endpoint;
 
             // Common system params
             const systemParams = {
@@ -319,11 +320,9 @@ export class TikTokShopApiService {
      * POST /order/202309/orders/search
      */
     async searchOrders(accessToken: string, shopCipher: string, params: any): Promise<any> {
-        const queryParams = {
-            ...params,
-            version: params.version || '202212'
-        };
-        return this.makeApiRequest('/orders/search', accessToken, shopCipher, queryParams, 'POST');
+        // Remove 'version' param if it exists, as it is now in the path
+        const { version, ...rest } = params;
+        return this.makeApiRequest('/order/202309/orders/search', accessToken, shopCipher, rest, 'POST');
     }
 
     /**
@@ -341,12 +340,9 @@ export class TikTokShopApiService {
      * POST /product/202309/products/search
      */
     async searchProducts(accessToken: string, shopCipher: string, params: any): Promise<any> {
-        // Add version parameter if not present
-        const queryParams = {
-            ...params,
-            version: params.version || '202212'
-        };
-        return this.makeApiRequest('/products/search', accessToken, shopCipher, queryParams, 'POST');
+        // Remove 'version' param if it exists, as it is now in the path
+        const { version, ...rest } = params;
+        return this.makeApiRequest('/product/202309/products/search', accessToken, shopCipher, rest, 'POST');
     }
 
     /**
