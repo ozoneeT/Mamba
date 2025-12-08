@@ -10,6 +10,7 @@ import { Account, supabase } from '../lib/supabase';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useShopStore } from '../store/useShopStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
@@ -108,6 +109,14 @@ export function Dashboard() {
       setShowWelcome(true);
     }
   }, [shops, isShopsFetched, selectedAccount, isLoadingAccounts, isLoadingShops]);
+
+  // Fetch Shop Data when a shop is selected
+  useEffect(() => {
+    if (selectedAccount?.id && selectedShop?.shop_id) {
+      console.log('[Dashboard] Fetching shop data for:', selectedShop.shop_name);
+      useShopStore.getState().fetchShopData(selectedAccount.id, selectedShop.shop_id);
+    }
+  }, [selectedAccount?.id, selectedShop?.shop_id]);
 
 
   // --- Actions ---

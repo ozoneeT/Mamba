@@ -1,21 +1,13 @@
-import { useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
-import { useShopStore } from './store/useShopStore';
 
 function AppContent() {
   const { user, loading } = useAuth();
-  const fetchShopData = useShopStore(state => state.fetchShopData);
-  const hasFetched = useRef(false);
 
   useEffect(() => {
-    if (user && !hasFetched.current) {
-      console.log('[App] Fetching shop data on initial load');
-      fetchShopData(user.id);
-      hasFetched.current = true;
-    }
-  }, [user?.id]); // Only depend on user.id, not the function
+    // Auth check logic or other app-level effects can go here
+  }, [user]);
 
   if (loading) {
     return (
