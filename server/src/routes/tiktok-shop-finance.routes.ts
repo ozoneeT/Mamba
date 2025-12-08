@@ -49,7 +49,15 @@ router.get('/payments/:accountId', async (req, res) => {
         const { shopId, ...query } = req.query;
 
         const shop = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getPayments(shop.access_token, shop.shop_cipher, query);
+
+        // Ensure sort params are present
+        const apiParams = {
+            sort_field: 'create_time',
+            sort_order: 'DESC',
+            ...query
+        };
+
+        const data = await tiktokShopApi.getPayments(shop.access_token, shop.shop_cipher, apiParams);
 
         res.json({ success: true, data });
     } catch (error) {
@@ -66,7 +74,14 @@ router.get('/withdrawals/:accountId', async (req, res) => {
         const { shopId, ...query } = req.query;
 
         const shop = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getWithdrawals(shop.access_token, shop.shop_cipher, query);
+
+        // Ensure types param is present (1=User Withdrawal, 2=Auto Withdrawal)
+        const apiParams = {
+            types: '1,2',
+            ...query
+        };
+
+        const data = await tiktokShopApi.getWithdrawals(shop.access_token, shop.shop_cipher, apiParams);
 
         res.json({ success: true, data });
     } catch (error) {
@@ -100,7 +115,15 @@ router.get('/unsettled/:accountId', async (req, res) => {
         const { shopId, ...query } = req.query;
 
         const shop = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getUnsettledOrders(shop.access_token, shop.shop_cipher, query);
+
+        // Ensure sort params are present
+        const apiParams = {
+            sort_field: 'order_create_time',
+            sort_order: 'DESC',
+            ...query
+        };
+
+        const data = await tiktokShopApi.getUnsettledOrders(shop.access_token, shop.shop_cipher, apiParams);
 
         res.json({ success: true, data });
     } catch (error) {
