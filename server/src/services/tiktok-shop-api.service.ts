@@ -213,15 +213,21 @@ export class TikTokShopApiService {
                     queryParams.version = version;
                 }
 
-                // CRITICAL FIX: If shop_id is provided, use it and REMOVE shop_cipher
-                // You usually cannot send both shop_id and shop_cipher in the query
+                // If shop_id is provided, use it in both signature and query
                 if (shop_id) {
                     signatureParams.shop_id = shop_id;
                     queryParams.shop_id = shop_id;
 
-                    // Remove shop_cipher to prevent conflicts
+                    // If shop_id is present, we definitely don't need shop_cipher
                     delete signatureParams.shop_cipher;
                     delete queryParams.shop_cipher;
+                } else {
+                    // If NO shop_id, we use shop_cipher for signature
+                    // BUT for POST requests, we do NOT send shop_cipher in the query params
+                    // (It is signed, but not sent - inferred from access_token/context by server)
+                    if (queryParams.shop_cipher) {
+                        delete queryParams.shop_cipher;
+                    }
                 }
 
                 bodyParams = rest;
