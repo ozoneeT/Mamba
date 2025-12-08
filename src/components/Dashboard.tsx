@@ -125,7 +125,36 @@ export function Dashboard() {
     if (selectedAccount) return selectedAccount;
 
     try {
-      // Create the account
+      if (!user?.id) throw new Error('User not authenticated');
+
+      // 1. Ensure Profile Exists
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      if (!existingProfile) {
+        console.log('Profile missing, creating new profile for user:', user.id);
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            email: user.email,
+            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            role: 'client',
+            updated_at: new Date().toISOString(),
+          });
+
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+          // Continue anyway, maybe it exists but we couldn't read it? 
+          // But if insert fails, likely next step fails too.
+          throw profileError;
+        }
+      }
+
+      // 2. Create the account
       const { data: account, error: accountError } = await supabase
         .from('accounts')
         .insert({
@@ -137,25 +166,25 @@ export function Dashboard() {
 
       if (accountError) throw accountError;
 
-      // Link account to user
+      // 3. Link account to user
       const { error: linkError } = await supabase
         .from('user_accounts')
         .insert({
-          user_id: user?.id,
+          user_id: user.id,
           account_id: account.id,
         });
 
       if (linkError) throw linkError;
 
       // Invalidate accounts query to refresh the list and trigger the useEffect to set selectedAccount
-      await queryClient.invalidateQueries({ queryKey: ['accounts', user?.id] });
+      await queryClient.invalidateQueries({ queryKey: ['accounts', user.id] });
 
       // We return the account directly here because invalidation is async and we need it now
       setSelectedAccount(account);
       return account;
     } catch (error: any) {
       console.error('Error ensuring account exists:', error);
-      throw new Error('Failed to create account record');
+      throw new Error('Failed to create account record: ' + error.message);
     }
   };
 
