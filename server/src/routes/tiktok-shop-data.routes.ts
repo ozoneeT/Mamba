@@ -92,8 +92,7 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
 
         const params: any = {
             page_size: parseInt(pageSize as string),
-            page_number: parseInt(page as string),
-            shop_id: shop.shop_id // Add shop_id
+            page_number: parseInt(page as string)
         };
 
         if (status) {
@@ -134,8 +133,7 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
 
         const params = {
             page_size: parseInt(pageSize as string),
-            page_number: parseInt(page as string),
-            shop_id: shop.shop_id // Add shop_id
+            page_number: parseInt(page as string)
         };
 
         const response = await tiktokShopApi.makeApiRequest(
@@ -192,7 +190,10 @@ router.get('/settlements/:accountId', async (req: Request, res: Response) => {
 
         const shop = await getShopWithToken(accountId, shopId as string);
 
-        const params: any = {};
+        const params: any = {
+            sort_field: 'settlement_time',
+            sort_order: 'DESC'
+        };
 
         if (startTime) params.start_time = parseInt(startTime as string);
         if (endTime) params.end_time = parseInt(endTime as string);
@@ -424,7 +425,7 @@ async function syncProducts(shop: any) {
         const params = {
             page_size: 50,
             page_number: 1,
-            search_status: 1 // Active products
+            status: 'ACTIVATE' // Active products
         };
 
         const response = await tiktokShopApi.searchProducts(
@@ -478,7 +479,9 @@ async function syncSettlements(shop: any) {
         const params = {
             start_time: thirtyDaysAgo,
             end_time: now,
-            page_size: 20
+            page_size: 20,
+            sort_field: 'settlement_time',
+            sort_order: 'DESC'
         };
 
         const response = await tiktokShopApi.getSettlements(
