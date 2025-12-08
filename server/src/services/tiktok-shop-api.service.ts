@@ -25,29 +25,19 @@ interface TokenResponse {
 
 export class TikTokShopApiService {
     private config: TikTokShopConfig;
-    private isSandbox: boolean;
 
     constructor() {
-        this.isSandbox = process.env.TIKTOK_SHOP_IS_SANDBOX === 'true';
-
-        // Use Production Auth URL even for Sandbox/Test shops as per documentation
-        // Use Sandbox API URL if isSandbox is true
         this.config = {
-            appKey: this.isSandbox
-                ? (process.env.TIKTOK_SHOP_SANDBOX_APP_KEY || process.env.TIKTOK_SHOP_APP_KEY || '')
-                : (process.env.TIKTOK_SHOP_APP_KEY || ''),
+            appKey: process.env.TIKTOK_SHOP_APP_KEY || '',
             // TRIM whitespace to prevent signature errors from copy-pasting .env values
-            appSecret: (this.isSandbox
-                ? (process.env.TIKTOK_SHOP_SANDBOX_APP_SECRET || process.env.TIKTOK_SHOP_APP_SECRET || '')
-                : (process.env.TIKTOK_SHOP_APP_SECRET || '')).trim(),
-            // Use Production API URL even for Sandbox as open-api-sandbox seems to be invalid/deprecated for some endpoints
+            appSecret: (process.env.TIKTOK_SHOP_APP_SECRET || '').trim(),
             apiBase: process.env.TIKTOK_SHOP_API_BASE || 'https://open-api.tiktokglobalshop.com',
             authBase: process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com',
         };
 
         // Debug logging
         console.log('TikTok Shop API Service initialized with:');
-        console.log('  Environment:', this.isSandbox ? 'SANDBOX' : 'PRODUCTION');
+        console.log('  Environment: PRODUCTION');
         console.log('  APP_KEY:', this.config.appKey ? `${this.config.appKey.substring(0, 5)}...` : 'MISSING');
         console.log('  API_BASE:', this.config.apiBase);
         console.log('  AUTH_BASE:', this.config.authBase);
