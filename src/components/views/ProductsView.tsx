@@ -11,6 +11,7 @@ interface Product {
     product_id: string;
     product_name: string;
     price: number;
+    currency: string;
     stock: number;
     sales_count: number;
     status: string;
@@ -171,8 +172,8 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                                 )}
                                 <div className="absolute top-2 right-2">
                                     <span className={`px-2 py-1 rounded-md text-xs font-medium backdrop-blur-md ${product.status === 'active'
-                                            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                            : 'bg-gray-700/80 text-gray-400 border border-gray-600'
+                                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                        : 'bg-gray-700/80 text-gray-400 border border-gray-600'
                                         }`}>
                                         {product.status}
                                     </span>
