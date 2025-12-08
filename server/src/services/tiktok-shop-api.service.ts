@@ -205,12 +205,22 @@ export class TikTokShopApiService {
                 queryParams = { ...queryParams, ...params };
             } else {
                 // For POST (JSON), body is NOT signed in V2
-                const { version, shop_id, shop_cipher: paramShopCipher, ...rest } = params;
+                const { version, shop_id, shop_cipher: paramShopCipher, page_size, page_number, ...rest } = params;
 
                 // Handle common special parameters that might be passed in params but belong in query
                 if (version) {
                     signatureParams.version = version;
                     queryParams.version = version;
+                }
+
+                // Move pagination to query params if present
+                if (page_size) {
+                    signatureParams.page_size = page_size;
+                    queryParams.page_size = page_size;
+                }
+                if (page_number) {
+                    signatureParams.page_number = page_number;
+                    queryParams.page_number = page_number;
                 }
 
                 // If shop_id is provided, use it in both signature and query
@@ -221,16 +231,13 @@ export class TikTokShopApiService {
                     // If shop_id is present, we definitely don't need shop_cipher
                     delete signatureParams.shop_cipher;
                     delete queryParams.shop_cipher;
-                } else {
-                    // If NO shop_id, we use shop_cipher for signature
-                    // BUT for POST requests, we do NOT send shop_cipher in the query params
-                    // (It is signed, but not sent - inferred from access_token/context by server)
-                    if (queryParams.shop_cipher) {
-                        delete queryParams.shop_cipher;
-                    }
                 }
+                // ELSE: Keep shop_cipher in queryParams (it was added from systemParams)
 
-                bodyParams = rest;
+                // Add pagination back to bodyParams as well, just in case
+                bodyParams = { ...rest };
+                if (page_size) bodyParams.page_size = page_size;
+                if (page_number) bodyParams.page_number = page_number;
             }
 
             // Generate signature
@@ -243,6 +250,12 @@ export class TikTokShopApiService {
                 'x-tts-access-token': accessToken,
                 'Content-Type': 'application/json',
             };
+
+            // DEBUG: Log final request details
+            console.log(`[TikTokApi] ${method} ${url}`);
+            console.log('[TikTokApi] Query Params:', JSON.stringify(queryParams, null, 2));
+            console.log('[TikTokApi] Body Params:', JSON.stringify(bodyParams, null, 2));
+            console.log('[TikTokApi] Headers:', JSON.stringify(headers, null, 2));
 
             let response;
             if (method === 'GET') {
