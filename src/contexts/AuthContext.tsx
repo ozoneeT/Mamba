@@ -28,21 +28,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      (() => {
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          fetchProfile(session.user.id);
-        } else {
-          setProfile(null);
-          setLoading(false);
-        }
-      })();
+      const newUser = session?.user ?? null;
+      setUser(current => {
+        if (current?.id === newUser?.id && current?.email === newUser?.email) return current;
+        return newUser;
+      });
+
+      if (newUser) {
+        // Only fetch profile if user changed or we don't have it
+        // We can rely on the user ID check above, but we need to trigger profile fetch
+        // Let's keep it simple: if we have a user, ensure we have a profile.
+        // But to avoid "reload on refocus", we should check if we already have the profile for this user.
+        // However, profile might have changed on server.
+        // Ideally we use React Query for profile.
+        fetchProfile(newUser.id);
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   const fetchProfile = async (userId: string) => {
+    // If we already have the profile for this user, don't set loading to true (or maybe don't even fetch if we want to be strict, but syncing is good)
+    // To avoid flickering, we can just fetch and update.
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -51,7 +62,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
 
       if (error) throw error;
-      setProfile(data);
+
+      setProfile(prev => {
+        // Simple equality check to avoid re-renders
+        if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
+        return data;
+      });
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {

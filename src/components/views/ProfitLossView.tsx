@@ -2,7 +2,7 @@ import { DollarSign, TrendingUp, TrendingDown, Wallet, PieChart, Calculator } fr
 import { useState, useEffect } from 'react';
 import { StatCard } from '../StatCard';
 import { useKPIData } from '../../hooks/useKPIData';
-import { Account, supabase } from '../../lib/supabase';
+import { Account } from '../../lib/supabase';
 import { DateRangePicker, DateRange } from '../DateRangePicker';
 
 interface ProfitLossViewProps {
@@ -35,7 +35,7 @@ const getDefaultDateRange = (): DateRange => {
   };
 };
 
-export function ProfitLossView({ account, shopId }: ProfitLossViewProps) {
+export function ProfitLossView({ account, shopId: _shopId }: ProfitLossViewProps) {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
   const { data, loading, aggregateMetrics } = useKPIData(account, undefined, dateRange);
   const [plMetrics, setPlMetrics] = useState<ProfitLossMetrics | null>(null);
