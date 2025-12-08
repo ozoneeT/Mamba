@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import tiktokShopAuthRoutes from './routes/tiktok-shop-auth.routes.js';
 import tiktokShopDataRoutes from './routes/tiktok-shop-data.routes.js';
+import tiktokShopFinanceRoutes from './routes/tiktok-shop-finance.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -52,6 +53,7 @@ app.get('/health', (req, res) => {
 // Mount TikTok Shop routes
 app.use('/api/tiktok-shop/auth', tiktokShopAuthRoutes);
 app.use('/api/tiktok-shop', tiktokShopDataRoutes);
+app.use('/api/tiktok-shop/finance', tiktokShopFinanceRoutes);
 
 // 404 handler
 app.use((req, res) => {

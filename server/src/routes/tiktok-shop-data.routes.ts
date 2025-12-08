@@ -7,7 +7,7 @@ const router = Router();
 /**
  * Helper function to get shop with valid token
  */
-async function getShopWithToken(accountId: string, shopId?: string) {
+export const getShopWithToken = async (accountId: string, shopId?: string) => {
     let query = supabase
         .from('tiktok_shops')
         .select('*')
@@ -482,7 +482,7 @@ async function syncSettlements(shop: any) {
             sort_order: 'DESC'
         };
 
-        const response = await tiktokShopApi.getSettlements(
+        const response = await tiktokShopApi.getStatements(
             shop.access_token,
             shop.shop_cipher,
             params

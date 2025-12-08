@@ -13,17 +13,38 @@ interface Product {
     main_image_url: string;
 }
 
-interface Order {
+export interface Order {
     order_id: string;
     order_status: string;
     order_amount: number;
     currency: string;
     created_time: number;
+    line_items: {
+        id: string;
+        product_name: string;
+        sku_image: string;
+        quantity: number;
+        sale_price: string;
+    }[];
+}
+
+export interface Statement {
+    id: string;
+    statement_time: number;
+    settlement_amount: string;
+    currency: string;
+    status: string;
 }
 
 interface ShopState {
     products: Product[];
     orders: Order[];
+    finance: {
+        statements: Statement[];
+        payments: any[];
+        withdrawals: any[];
+        unsettledOrders: any[];
+    };
     isLoading: boolean;
     error: string | null;
     lastFetchTime: number | null;
@@ -38,19 +59,30 @@ interface ShopState {
 export const useShopStore = create<ShopState>((set, get) => ({
     products: [],
     orders: [],
+    finance: {
+        statements: [],
+        payments: [],
+        withdrawals: [],
+        unsettledOrders: []
+    },
     isLoading: false,
     error: null,
     lastFetchTime: null,
 
     setProducts: (products) => set({ products }),
     setOrders: (orders) => set({ orders }),
-    clearData: () => set({ products: [], orders: [], lastFetchTime: null }),
+    clearData: () => set({
+        products: [],
+        orders: [],
+        finance: { statements: [], payments: [], withdrawals: [], unsettledOrders: [] },
+        lastFetchTime: null
+    }),
 
     fetchShopData: async (accountId: string, shopId?: string, forceRefresh = false) => {
         const state = get();
 
         // If data exists and not forcing refresh, skip fetch
-        if (!forceRefresh && state.products.length > 0 && state.orders.length > 0) {
+        if (!forceRefresh && state.products.length > 0 && state.orders.length > 0 && state.finance.statements.length > 0) {
             console.log('[Store] Using cached data, skipping fetch');
             return;
         }
@@ -60,21 +92,29 @@ export const useShopStore = create<ShopState>((set, get) => ({
         try {
             console.log('[Store] Fetching shop data from API...');
 
-            // Fetch Products from API
+            // Fetch Products
             const productsUrl = `${API_BASE_URL}/api/tiktok-shop/products/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const productsResponse = await fetch(productsUrl);
-            const productsResult = await productsResponse.json();
+            const productsPromise = fetch(productsUrl).then(r => r.json());
 
-            // Fetch Orders from API
+            // Fetch Orders
             const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const ordersResponse = await fetch(ordersUrl);
-            const ordersResult = await ordersResponse.json();
+            const ordersPromise = fetch(ordersUrl).then(r => r.json());
+
+            // Fetch Finance Data
+            const financeUrl = `${API_BASE_URL}/api/tiktok-shop/finance/statements/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
+            const financePromise = fetch(financeUrl).then(r => r.json());
+
+            const [productsResult, ordersResult, financeResult] = await Promise.all([
+                productsPromise,
+                ordersPromise,
+                financePromise
+            ]);
 
             if (!productsResult.success || !ordersResult.success) {
                 throw new Error('Failed to fetch shop data');
             }
 
-            // Transform products to match store interface
+            // Transform products
             const products: Product[] = (productsResult.data?.products || []).map((p: any) => ({
                 product_id: p.product_id,
                 name: p.product_name,
@@ -86,23 +126,39 @@ export const useShopStore = create<ShopState>((set, get) => ({
                 main_image_url: p.images?.[0] || '',
             }));
 
-            // Transform orders to match store interface
+            // Transform orders
             const orders: Order[] = (ordersResult.data?.orders || []).map((o: any) => ({
-                order_id: o.order_id,
-                order_status: o.order_status,
-                order_amount: o.total_amount,
-                currency: o.currency,
+                order_id: o.id,
+                order_status: o.status,
+                order_amount: parseFloat(o.payment?.total_amount || '0'),
+                currency: o.payment?.currency || 'USD',
                 created_time: o.create_time,
+                line_items: (o.line_items || []).map((item: any) => ({
+                    id: item.id,
+                    product_name: item.product_name,
+                    sku_image: item.sku_image,
+                    quantity: 1,
+                    sale_price: item.sale_price
+                }))
             }));
+
+            // Transform finance data
+            const statements = financeResult.success ? (financeResult.data?.statement_list || []) : [];
 
             set({
                 products,
                 orders,
+                finance: {
+                    statements,
+                    payments: [], // Can fetch these on demand or adds more complexity
+                    withdrawals: [],
+                    unsettledOrders: []
+                },
                 isLoading: false,
                 lastFetchTime: Date.now()
             });
 
-            console.log(`[Store] Fetched ${products.length} products and ${orders.length} orders`);
+            console.log(`[Store] Fetched ${products.length} products, ${orders.length} orders, ${statements.length} statements`);
         } catch (error: any) {
             console.error('[Store] Error fetching shop data:', error);
             set({ error: error.message, isLoading: false });

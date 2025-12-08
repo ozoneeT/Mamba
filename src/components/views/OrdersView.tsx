@@ -1,14 +1,10 @@
 import { useState } from 'react';
 import { ShoppingBag, Package, Clock, CheckCircle, XCircle, TruckIcon } from 'lucide-react';
-import { Account } from '../../lib/supabase';
 import { useShopStore } from '../../store/useShopStore';
 
-interface OrdersViewProps {
-    account: Account;
-    shopId?: string;
-}
 
-export function OrdersView({ account }: OrdersViewProps) {
+
+export function OrdersView() {
     const orders = useShopStore(state => state.orders);
     const isLoading = useShopStore(state => state.isLoading);
     const [statusFilter, setStatusFilter] = useState('all');
@@ -50,9 +46,11 @@ export function OrdersView({ account }: OrdersViewProps) {
     };
 
     const formatDate = (timestamp: string | number) => {
-        const date = typeof timestamp === 'number'
-            ? new Date(timestamp * 1000) // Assuming unix timestamp in seconds
-            : new Date(timestamp);
+        if (!timestamp) return 'Invalid Date';
+        // API returns seconds, JS needs milliseconds
+        const date = new Date(Number(timestamp) * 1000);
+
+        if (isNaN(date.getTime())) return 'Invalid Date';
 
         return date.toLocaleDateString('en-US', {
             year: 'numeric',
@@ -135,10 +133,28 @@ export function OrdersView({ account }: OrdersViewProps) {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-300">{formatDate(order.created_time.toString())}</div>
+                                        <div className="text-sm text-gray-300">{formatDate(order.created_time)}</div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-300">View Details</div>
+                                    <td className="px-6 py-4">
+                                        <div className="flex flex-col gap-2">
+                                            {order.line_items?.map((item) => (
+                                                <div key={item.id} className="flex items-center gap-3">
+                                                    {item.sku_image && (
+                                                        <img
+                                                            src={item.sku_image}
+                                                            alt={item.product_name}
+                                                            className="w-8 h-8 rounded object-cover border border-gray-700"
+                                                        />
+                                                    )}
+                                                    <div className="text-sm text-gray-300 truncate max-w-[200px]" title={item.product_name}>
+                                                        {item.product_name}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {(!order.line_items || order.line_items.length === 0) && (
+                                                <span className="text-sm text-gray-500 italic">No items</span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-white">

@@ -382,19 +382,51 @@ export class TikTokShopApiService {
     }
 
     /**
-     * Get Settlements
+     * Get Settlements (Statements)
      * GET /finance/202309/statements
      */
-    async getSettlements(accessToken: string, shopCipher: string, params: any): Promise<any> {
+    async getStatements(accessToken: string, shopCipher: string, params: any): Promise<any> {
         return this.makeApiRequest('/finance/202309/statements', accessToken, shopCipher, params, 'GET');
+    }
+
+    /**
+     * Get Payments
+     * GET /finance/202309/payments
+     */
+    async getPayments(accessToken: string, shopCipher: string, params: any): Promise<any> {
+        return this.makeApiRequest('/finance/202309/payments', accessToken, shopCipher, params, 'GET');
     }
 
     /**
      * Get Payouts (Withdrawals)
      * GET /finance/202309/withdrawals
      */
-    async getPayouts(accessToken: string, shopCipher: string, params: any): Promise<any> {
+    async getWithdrawals(accessToken: string, shopCipher: string, params: any): Promise<any> {
         return this.makeApiRequest('/finance/202309/withdrawals', accessToken, shopCipher, params, 'GET');
+    }
+
+    /**
+     * Get Statement Transactions
+     * GET /finance/202501/statements/{statement_id}/statement_transactions
+     */
+    async getStatementTransactions(accessToken: string, shopCipher: string, statementId: string, params: any): Promise<any> {
+        return this.makeApiRequest(`/finance/202501/statements/${statementId}/statement_transactions`, accessToken, shopCipher, params, 'GET');
+    }
+
+    /**
+     * Get Order Transactions
+     * GET /finance/202501/orders/{order_id}/statement_transactions
+     */
+    async getOrderTransactions(accessToken: string, shopCipher: string, orderId: string, params: any): Promise<any> {
+        return this.makeApiRequest(`/finance/202501/orders/${orderId}/statement_transactions`, accessToken, shopCipher, params, 'GET');
+    }
+
+    /**
+     * Get Unsettled Orders
+     * GET /finance/202507/orders/unsettled
+     */
+    async getUnsettledOrders(accessToken: string, shopCipher: string, params: any): Promise<any> {
+        return this.makeApiRequest('/finance/202507/orders/unsettled', accessToken, shopCipher, params, 'GET');
     }
 }
 

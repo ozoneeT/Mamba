@@ -156,12 +156,12 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
 
       {/* Revenue Metrics */}
       <div>
-        <h3 className="text-lg font-semibold text-white mb-4">Revenue Overview</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <h3 className="text-lg font-semibold text-white mb-4">Overview</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatCard
             title="Total Revenue"
             value={formatCurrency(metrics.totalRevenue)}
-            change={0}
+            change={0} // Placeholder, ideally calculated
             icon={DollarSign}
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
             subtitle="All-time earnings"
@@ -169,18 +169,28 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
           <StatCard
             title="Total Orders"
             value={formatNumber(metrics.totalOrders)}
-            change={0}
+            subValue={formatCurrency(metrics.totalRevenue) + " GMV"}
+            change={0} // Placeholder, ideally calculated
             icon={ShoppingBag}
             iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
             subtitle="Completed orders"
             onClick={() => onNavigate?.('orders')}
           />
           <StatCard
-            title="Avg Order Value"
-            value={formatCurrency(metrics.avgOrderValue)}
-            change={0}
-            icon={TrendingUp}
+            title="Total Products"
+            value={formatNumber(metrics.totalProducts)}
+            change={-2.4}
+            icon={Package}
             iconColor="bg-gradient-to-r from-purple-500 to-pink-500"
+            subtitle="Active listings"
+            onClick={() => onNavigate?.('products')}
+          />
+          <StatCard
+            title="Avg. Order Value"
+            value={formatCurrency(metrics.avgOrderValue)}
+            change={5.7}
+            icon={TrendingUp}
+            iconColor="bg-gradient-to-r from-orange-500 to-red-500"
             subtitle="Per transaction"
           />
         </div>
@@ -190,14 +200,6 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
       <div>
         <h3 className="text-lg font-semibold text-white mb-4">Shop Performance</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatCard
-            title="Total Products"
-            value={formatNumber(metrics.totalProducts)}
-            icon={Package}
-            iconColor="bg-gradient-to-r from-orange-500 to-red-500"
-            subtitle="Active listings"
-            onClick={() => onNavigate?.('products')}
-          />
           <StatCard
             title="Conversion Rate"
             value={`${metrics.conversionRate.toFixed(2)}%`}

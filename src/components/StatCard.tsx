@@ -7,10 +7,11 @@ interface StatCardProps {
   icon: LucideIcon;
   iconColor: string;
   subtitle?: string;
+  subValue?: string;
   onClick?: () => void;
 }
 
-export function StatCard({ title, value, change, icon: Icon, iconColor, subtitle, onClick }: StatCardProps) {
+export function StatCard({ title, value, subValue, change, icon: Icon, iconColor, subtitle, onClick }: StatCardProps) {
   const isPositive = change !== undefined && change >= 0;
   const showChange = change !== undefined && change !== 0;
 
@@ -34,6 +35,9 @@ export function StatCard({ title, value, change, icon: Icon, iconColor, subtitle
       <div>
         <p className="text-gray-400 text-sm font-medium mb-1">{title}</p>
         <p className="text-3xl font-bold text-white mb-1">{value}</p>
+        {subValue && (
+          <p className="text-sm font-medium text-gray-300 mb-1">{subValue}</p>
+        )}
         {subtitle && (
           <p className="text-gray-500 text-xs">{subtitle}</p>
         )}

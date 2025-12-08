@@ -15,7 +15,7 @@ import { useShopStore } from '../store/useShopStore';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function Dashboard() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('overview');
   // We still keep selectedAccount state to allow switching if we ever re-enable it, 
@@ -343,9 +343,9 @@ export function Dashboard() {
               if (!selectedAccount) return null;
               switch (activeTab) {
                 case 'overview': return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} onNavigate={setActiveTab} />;
-                case 'orders': return <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                case 'orders': return <OrdersView />;
                 case 'products': return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
-                case 'profit-loss': return <ProfitLossView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                case 'profit-loss': return <ProfitLossView shopId={selectedShop?.shop_id} />;
                 default: return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
               }
             })()

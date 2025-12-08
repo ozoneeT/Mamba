@@ -1,12 +1,10 @@
 import { DollarSign, TrendingUp, TrendingDown, Wallet, PieChart, Calculator } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { StatCard } from '../StatCard';
-import { useKPIData } from '../../hooks/useKPIData';
-import { Account } from '../../lib/supabase';
+import { useShopStore } from '../../store/useShopStore';
 import { DateRangePicker, DateRange } from '../DateRangePicker';
 
 interface ProfitLossViewProps {
-  account: Account;
   shopId?: string;
 }
 
@@ -35,42 +33,55 @@ const getDefaultDateRange = (): DateRange => {
   };
 };
 
-export function ProfitLossView({ account, shopId: _shopId }: ProfitLossViewProps) {
+export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
-  const { data, loading, aggregateMetrics } = useKPIData(account, undefined, dateRange);
+  const { orders, finance, isLoading } = useShopStore(state => ({
+    orders: state.orders,
+    finance: state.finance,
+    isLoading: state.isLoading
+  }));
+
   const [plMetrics, setPlMetrics] = useState<ProfitLossMetrics | null>(null);
-  const [plLoading, setPlLoading] = useState(true);
+  const [calculating, setCalculating] = useState(false);
 
   useEffect(() => {
-    calculateProfitLoss();
-  }, [account.id, account.is_agency_view, dateRange]);
+    if (!isLoading) {
+      calculateProfitLoss();
+    }
+  }, [orders, finance.statements, dateRange, isLoading]);
 
   const calculateProfitLoss = async () => {
     try {
-      setPlLoading(true);
+      setCalculating(true);
 
-      const metrics = aggregateMetrics(data);
+      // Filter orders by date range
+      const start = new Date(dateRange.startDate).getTime() / 1000;
+      const end = new Date(dateRange.endDate).getTime() / 1000 + 86400; // End of day
 
-      const totalRevenue = (metrics?.revenue || 0) + (metrics?.affiliate_commissions || 0);
-      const adRevenue = metrics?.revenue || 0;
-      const salesRevenue = metrics?.revenue || 0;
-      const affiliateRevenue = metrics?.affiliate_commissions || 0;
+      const filteredOrders = orders.filter(o => o.created_time >= start && o.created_time <= end);
+      const filteredStatements = finance.statements.filter(s => s.statement_time >= start && s.statement_time <= end);
 
-      const adSpend = metrics?.spend || 0;
-      const productCosts = (metrics?.revenue || 0) * 0.3;
-      const operationalCosts = totalRevenue * 0.15;
+      // Calculate Metrics
+      const totalRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
+      const netPayout = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount), 0);
 
-      const totalCosts = adSpend + productCosts + operationalCosts;
+      // Estimates (since we don't have this data from API yet)
+      const adSpend = 0; // Would need Ads API
+      const productCosts = totalRevenue * 0.3; // Estimated 30% COGS
+      const operationalCosts = totalRevenue * 0.1; // Estimated 10% Ops
+
+      const totalCosts = (totalRevenue - netPayout) + productCosts + operationalCosts; // Fees + COGS + Ops
       const grossProfit = totalRevenue - productCosts;
-      const netProfit = totalRevenue - totalCosts;
+      const netProfit = netPayout - productCosts - operationalCosts;
+
       const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
       const roi = totalCosts > 0 ? ((netProfit / totalCosts) * 100) : 0;
 
       setPlMetrics({
         total_revenue: totalRevenue,
-        ad_revenue: adRevenue,
-        sales_revenue: salesRevenue,
-        affiliate_revenue: affiliateRevenue,
+        ad_revenue: 0,
+        sales_revenue: totalRevenue,
+        affiliate_revenue: 0,
         total_costs: totalCosts,
         ad_spend: adSpend,
         product_costs: productCosts,
@@ -83,11 +94,11 @@ export function ProfitLossView({ account, shopId: _shopId }: ProfitLossViewProps
     } catch (error) {
       console.error('Error calculating P&L:', error);
     } finally {
-      setPlLoading(false);
+      setCalculating(false);
     }
   };
 
-  if (loading || plLoading) {
+  if (isLoading || calculating) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
