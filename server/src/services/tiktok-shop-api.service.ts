@@ -36,9 +36,10 @@ export class TikTokShopApiService {
             appKey: this.isSandbox
                 ? (process.env.TIKTOK_SHOP_SANDBOX_APP_KEY || process.env.TIKTOK_SHOP_APP_KEY || '')
                 : (process.env.TIKTOK_SHOP_APP_KEY || ''),
-            appSecret: this.isSandbox
+            // TRIM whitespace to prevent signature errors from copy-pasting .env values
+            appSecret: (this.isSandbox
                 ? (process.env.TIKTOK_SHOP_SANDBOX_APP_SECRET || process.env.TIKTOK_SHOP_APP_SECRET || '')
-                : (process.env.TIKTOK_SHOP_APP_SECRET || ''),
+                : (process.env.TIKTOK_SHOP_APP_SECRET || '')).trim(),
             // Use Production API URL even for Sandbox as open-api-sandbox seems to be invalid/deprecated for some endpoints
             apiBase: process.env.TIKTOK_SHOP_API_BASE || 'https://open-api.tiktokglobalshop.com',
             authBase: process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com',
@@ -139,31 +140,41 @@ export class TikTokShopApiService {
     }
 
     /**
-     * Generate signature for API requests
+     * Generate signature for API requests (Fixed Logic)
      */
     private generateSignature(path: string, params: Record<string, any>): string {
-        // Exclude access_token and sign from signature calculation
+        // 1. Filter out keys that should not be signed
         const excludeKeys = ['access_token', 'sign'];
 
-        // Sort parameters alphabetically
+        // 2. Sort keys alphabetically and filter out undefined/null/empty values
         const sortedKeys = Object.keys(params)
-            .filter(key => !excludeKeys.includes(key))
+            .filter(key =>
+                !excludeKeys.includes(key) &&
+                params[key] !== undefined &&
+                params[key] !== null &&
+                params[key] !== ''
+            )
             .sort();
 
-        // Build the string to sign
-        // Step 1 & 2: Concatenate sorted parameters
+        // 3. Concatenate KeyValue pairs
         let paramString = '';
         sortedKeys.forEach(key => {
-            paramString += `${key}${params[key]}`;
+            // Ensure value is converted to string exactly as it will be sent
+            paramString += `${key}${String(params[key])}`;
         });
 
-        // Step 3: Append to API path
+        // 4. Prepend Path
         let stringToSign = `${path}${paramString}`;
 
-        // Step 4: Wrap with app_secret
+        // 5. Wrap with App Secret
         stringToSign = `${this.config.appSecret}${stringToSign}${this.config.appSecret}`;
 
-        // Step 5: Encode using HMAC-SHA256
+        // DEBUG: Uncomment to see exactly what is being signed
+        console.log(`[TikTokSign] Path: ${path}`);
+        console.log(`[TikTokSign] Params:`, params);
+        console.log(`[TikTokSign] StringToSign: ${stringToSign}`);
+
+        // 6. HMAC-SHA256
         const hmac = crypto.createHmac('sha256', this.config.appSecret);
         hmac.update(stringToSign);
         return hmac.digest('hex');
@@ -181,47 +192,48 @@ export class TikTokShopApiService {
     ): Promise<any> {
         try {
             const timestamp = Math.floor(Date.now() / 1000);
-            // FIX: Do not prepend '/api' manually. The endpoint passed should contain the full path.
             const path = endpoint;
 
-            // Common system params
-            const systemParams = {
+            // System params that go into every request
+            const systemParams: any = {
                 app_key: this.config.appKey,
                 timestamp: timestamp.toString(),
-                shop_cipher: shopCipher,
             };
 
+            // Only add shop_cipher if it's explicitly provided and not null
+            if (shopCipher) {
+                systemParams.shop_cipher = shopCipher;
+            }
+
             let signatureParams: any = { ...systemParams };
-            // access_token is passed in header 'x-tts-access-token', not needed in query for V2
             let queryParams: any = { ...systemParams };
             let bodyParams: any = {};
 
             if (method === 'GET') {
-                // For GET, all params are in query and signed
+                // For GET, all params are signed
                 signatureParams = { ...signatureParams, ...params };
                 queryParams = { ...queryParams, ...params };
             } else {
-                // For POST, separate special params (query) from business params (body)
+                // For POST (JSON), body is NOT signed in V2
                 const { version, shop_id, shop_cipher: paramShopCipher, ...rest } = params;
 
+                // Handle common special parameters that might be passed in params but belong in query
                 if (version) {
                     signatureParams.version = version;
                     queryParams.version = version;
                 }
 
+                // CRITICAL FIX: If shop_id is provided, use it and REMOVE shop_cipher
+                // You usually cannot send both shop_id and shop_cipher in the query
                 if (shop_id) {
                     signatureParams.shop_id = shop_id;
                     queryParams.shop_id = shop_id;
+
+                    // Remove shop_cipher to prevent conflicts
+                    delete signatureParams.shop_cipher;
+                    delete queryParams.shop_cipher;
                 }
 
-                // If shop_cipher is passed in params, it might override or duplicate. 
-                // Since it's already in systemParams, we generally don't need to add it again from params 
-                // unless we want to support overriding. 
-                // But typically shopCipher arg is the source of truth.
-                // Let's just ignore shop_cipher from params to avoid duplication in signatureParams if logic was naive,
-                // but here we are constructing signatureParams from systemParams.
-
-                // Body params are NOT signed for JSON POST
                 bodyParams = rest;
             }
 
@@ -254,16 +266,20 @@ export class TikTokShopApiService {
             }
 
             if (response.data.code !== 0) {
-                throw new Error(`API request failed: ${response.data.message}`);
+                // Enhanced error logging
+                console.error(`TikTok API Error [${response.data.code}]: ${response.data.message}`);
+                console.error(`Req ID: ${response.data.request_id}`);
+                throw new Error(response.data.message);
             }
 
             return response.data.data;
         } catch (error: any) {
-            console.error(`Error making API request to ${endpoint}:`, error);
-            if (error.response) {
-                console.error('Response data:', error.response.data);
+            // Detailed error reporting for debugging signatures
+            if (error.response?.data) {
+                console.error('API Error Response:', JSON.stringify(error.response.data, null, 2));
+                throw new Error(error.response.data.message || 'TikTok API request failed');
             }
-            throw new Error(`API request failed: ${error.message}`);
+            throw error;
         }
     }
 
