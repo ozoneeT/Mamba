@@ -23,7 +23,15 @@ router.get('/statements/:accountId', async (req, res) => {
 
         console.log(`[FinanceAPI] Getting statements for account ${accountId}, shop ${shopId}`);
         const shop = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getStatements(shop.access_token, shop.shop_cipher, query);
+
+        // Ensure sort params are present
+        const apiParams = {
+            sort_field: 'statement_time',
+            sort_order: 'DESC',
+            ...query
+        };
+
+        const data = await tiktokShopApi.getStatements(shop.access_token, shop.shop_cipher, apiParams);
         console.log(`[FinanceAPI] Got ${data?.statement_list?.length || 0} statements`);
 
         res.json({ success: true, data });

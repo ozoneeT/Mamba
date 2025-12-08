@@ -100,14 +100,22 @@ export const useShopStore = create<ShopState>((set, get) => ({
             const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
             const ordersPromise = fetch(ordersUrl).then(r => r.json());
 
-            // Fetch Finance Data
-            const financeUrl = `${API_BASE_URL}/api/tiktok-shop/finance/statements/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const financePromise = fetch(financeUrl).then(r => r.json());
+            // Fetch Finance Data (Parallel)
+            const financeBaseUrl = `${API_BASE_URL}/api/tiktok-shop/finance`;
+            const queryParams = shopId ? `?shopId=${shopId}` : '';
 
-            const [productsResult, ordersResult, financeResult] = await Promise.all([
+            const statementsPromise = fetch(`${financeBaseUrl}/statements/${accountId}${queryParams}`).then(r => r.json());
+            const paymentsPromise = fetch(`${financeBaseUrl}/payments/${accountId}${queryParams}`).then(r => r.json());
+            const withdrawalsPromise = fetch(`${financeBaseUrl}/withdrawals/${accountId}${queryParams}`).then(r => r.json());
+            const unsettledPromise = fetch(`${financeBaseUrl}/unsettled/${accountId}${queryParams}`).then(r => r.json());
+
+            const [productsResult, ordersResult, statementsResult, paymentsResult, withdrawalsResult, unsettledResult] = await Promise.all([
                 productsPromise,
                 ordersPromise,
-                financePromise
+                statementsPromise,
+                paymentsPromise,
+                withdrawalsPromise,
+                unsettledPromise
             ]);
 
             if (!productsResult.success || !ordersResult.success) {
@@ -143,22 +151,26 @@ export const useShopStore = create<ShopState>((set, get) => ({
             }));
 
             // Transform finance data
-            const statements = financeResult.success ? (financeResult.data?.statement_list || []) : [];
+            const statements = statementsResult.success ? (statementsResult.data?.statement_list || []) : [];
+            const payments = paymentsResult.success ? (paymentsResult.data?.payment_list || []) : [];
+            const withdrawals = withdrawalsResult.success ? (withdrawalsResult.data?.withdrawal_list || []) : [];
+            const unsettledOrders = unsettledResult.success ? (unsettledResult.data?.order_list || []) : [];
 
             set({
                 products,
                 orders,
                 finance: {
                     statements,
-                    payments: [], // Can fetch these on demand or adds more complexity
-                    withdrawals: [],
-                    unsettledOrders: []
+                    payments,
+                    withdrawals,
+                    unsettledOrders
                 },
                 isLoading: false,
                 lastFetchTime: Date.now()
             });
 
-            console.log(`[Store] Fetched ${products.length} products, ${orders.length} orders, ${statements.length} statements`);
+            console.log(`[Store] Fetched ${products.length} products, ${orders.length} orders`);
+            console.log(`[Store] Finance: ${statements.length} statements, ${payments.length} payments, ${withdrawals.length} withdrawals`);
         } catch (error: any) {
             console.error('[Store] Error fetching shop data:', error);
             set({ error: error.message, isLoading: false });
