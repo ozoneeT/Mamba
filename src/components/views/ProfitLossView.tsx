@@ -35,11 +35,9 @@ const getDefaultDateRange = (): DateRange => {
 
 export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
-  const { orders, finance, isLoading } = useShopStore(state => ({
-    orders: state.orders,
-    finance: state.finance,
-    isLoading: state.isLoading
-  }));
+  const orders = useShopStore(state => state.orders);
+  const finance = useShopStore(state => state.finance);
+  const isLoading = useShopStore(state => state.isLoading);
 
   const [plMetrics, setPlMetrics] = useState<ProfitLossMetrics | null>(null);
   const [calculating, setCalculating] = useState(false);

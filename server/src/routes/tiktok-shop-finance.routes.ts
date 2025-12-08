@@ -21,8 +21,10 @@ router.get('/statements/:accountId', async (req, res) => {
         const { accountId } = req.params;
         const { shopId, ...query } = req.query;
 
-        const { accessToken, shopCipher } = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getStatements(accessToken, shopCipher, query);
+        console.log(`[FinanceAPI] Getting statements for account ${accountId}, shop ${shopId}`);
+        const shop = await getShopWithToken(accountId, shopId as string);
+        const data = await tiktokShopApi.getStatements(shop.access_token, shop.shop_cipher, query);
+        console.log(`[FinanceAPI] Got ${data?.statement_list?.length || 0} statements`);
 
         res.json({ success: true, data });
     } catch (error) {
@@ -38,8 +40,8 @@ router.get('/payments/:accountId', async (req, res) => {
         const { accountId } = req.params;
         const { shopId, ...query } = req.query;
 
-        const { accessToken, shopCipher } = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getPayments(accessToken, shopCipher, query);
+        const shop = await getShopWithToken(accountId, shopId as string);
+        const data = await tiktokShopApi.getPayments(shop.access_token, shop.shop_cipher, query);
 
         res.json({ success: true, data });
     } catch (error) {
@@ -55,8 +57,8 @@ router.get('/withdrawals/:accountId', async (req, res) => {
         const { accountId } = req.params;
         const { shopId, ...query } = req.query;
 
-        const { accessToken, shopCipher } = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getWithdrawals(accessToken, shopCipher, query);
+        const shop = await getShopWithToken(accountId, shopId as string);
+        const data = await tiktokShopApi.getWithdrawals(shop.access_token, shop.shop_cipher, query);
 
         res.json({ success: true, data });
     } catch (error) {
@@ -72,8 +74,8 @@ router.get('/transactions/:accountId/:statementId', async (req, res) => {
         const { accountId, statementId } = req.params;
         const { shopId, ...query } = req.query;
 
-        const { accessToken, shopCipher } = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getStatementTransactions(accessToken, shopCipher, statementId, query);
+        const shop = await getShopWithToken(accountId, shopId as string);
+        const data = await tiktokShopApi.getStatementTransactions(shop.access_token, shop.shop_cipher, statementId, query);
 
         res.json({ success: true, data });
     } catch (error) {
@@ -89,8 +91,8 @@ router.get('/unsettled/:accountId', async (req, res) => {
         const { accountId } = req.params;
         const { shopId, ...query } = req.query;
 
-        const { accessToken, shopCipher } = await getShopWithToken(accountId, shopId as string);
-        const data = await tiktokShopApi.getUnsettledOrders(accessToken, shopCipher, query);
+        const shop = await getShopWithToken(accountId, shopId as string);
+        const data = await tiktokShopApi.getUnsettledOrders(shop.access_token, shop.shop_cipher, query);
 
         res.json({ success: true, data });
     } catch (error) {
