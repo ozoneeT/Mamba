@@ -19,10 +19,15 @@ export function OrdersView({ account }: OrdersViewProps) {
         : orders.filter(order => order.order_status === statusFilter);
 
     const getStatusIcon = (status: string) => {
+        if (!status) {
+            return <ShoppingBag className="w-5 h-5 text-gray-500" />;
+        }
+
         switch (status.toLowerCase()) {
             case 'unpaid':
                 return <Clock className="w-5 h-5 text-yellow-500" />;
             case 'awaiting_shipment':
+            case 'awaiting_collection':
                 return <Package className="w-5 h-5 text-blue-500" />;
             case 'shipped':
                 return <TruckIcon className="w-5 h-5 text-purple-500" />;
@@ -37,6 +42,7 @@ export function OrdersView({ account }: OrdersViewProps) {
     };
 
     const formatStatus = (status: string) => {
+        if (!status) return 'Unknown';
         return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     };
 

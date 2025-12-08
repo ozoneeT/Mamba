@@ -136,28 +136,26 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
             page_number: parseInt(page as string)
         };
 
-        const response = await tiktokShopApi.makeApiRequest(
-            '/product/202309/products/search',
+        const response = await tiktokShopApi.searchProducts(
             shop.access_token,
             shop.shop_cipher,
-            params,
-            'POST'
+            params
         );
 
         // Transform the response to match frontend expectations
         const products = (response.products || []).map((p: any) => {
             const mainSku = p.skus?.[0] || {};
             const priceInfo = mainSku.price || {};
-            const stockInfo = mainSku.stock_infos?.[0] || {};
+            const inventoryInfo = mainSku.inventory?.[0] || {};
 
             return {
                 product_id: p.id,
-                product_name: p.name,
-                price: parseFloat(priceInfo.original_price || '0'),
+                product_name: p.title, // 202502 uses 'title'
+                price: parseFloat(priceInfo.tax_exclusive_price || '0'), // 202502 uses 'tax_exclusive_price'
                 currency: priceInfo.currency || 'USD',
-                stock: stockInfo.available_stock || 0,
+                stock: inventoryInfo.quantity || 0, // 202502 uses 'inventory' and 'quantity'
                 sales_count: 0, // Sales count not directly available in this endpoint response structure
-                status: p.status === 4 ? 'active' : 'inactive', // Map status 4 to active
+                status: p.status === 'ACTIVATE' ? 'active' : 'inactive', // 202502 uses 'ACTIVATE' string
                 images: [], // Images not in the search response, would need detail call
                 create_time: p.create_time
             };
