@@ -188,11 +188,11 @@ export class TikTokShopApiService {
             const systemParams = {
                 app_key: this.config.appKey,
                 timestamp: timestamp.toString(),
-                shop_cipher: shopCipher,
             };
 
             let signatureParams: any = { ...systemParams };
-            let queryParams: any = { ...systemParams, access_token: accessToken };
+            // access_token is passed in header 'x-tts-access-token', not needed in query for V2
+            let queryParams: any = { ...systemParams };
             let bodyParams: any = {};
 
             if (method === 'GET') {
@@ -201,7 +201,7 @@ export class TikTokShopApiService {
                 queryParams = { ...queryParams, ...params };
             } else {
                 // For POST, separate special params (query) from business params (body)
-                const { version, shop_id, ...rest } = params;
+                const { version, shop_id, shop_cipher, ...rest } = params;
 
                 if (version) {
                     signatureParams.version = version;
@@ -211,6 +211,12 @@ export class TikTokShopApiService {
                 if (shop_id) {
                     signatureParams.shop_id = shop_id;
                     queryParams.shop_id = shop_id;
+                }
+
+                // If shop_cipher is passed in params (unlikely for V2 but possible), handle it
+                if (shop_cipher) {
+                    signatureParams.shop_cipher = shop_cipher;
+                    queryParams.shop_cipher = shop_cipher;
                 }
 
                 // Body params are NOT signed for JSON POST
