@@ -193,7 +193,7 @@ export class TikTokShopApiService {
 
             let signatureParams: any = { ...systemParams };
             // access_token is passed in header 'x-tts-access-token', not needed in query for V2
-            let queryParams: any = { ...systemParams, access_token: accessToken };
+            let queryParams: any = { ...systemParams };
             let bodyParams: any = {};
 
             if (method === 'GET') {
