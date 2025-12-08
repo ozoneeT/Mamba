@@ -1,6 +1,7 @@
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
+import { useEffect } from 'react';
 
 function AppContent() {
   const { user, loading } = useAuth();
