@@ -351,12 +351,12 @@ export class TikTokShopApiService {
 
     /**
      * Search Products
-     * POST /product/202309/products/search
+     * POST /product/202502/products/search
      */
     async searchProducts(accessToken: string, shopCipher: string, params: any): Promise<any> {
         // Remove 'version' param if it exists, as it is now in the path
         const { version, ...rest } = params;
-        return this.makeApiRequest('/product/202309/products/search', accessToken, shopCipher, rest, 'POST');
+        return this.makeApiRequest('/product/202502/products/search', accessToken, shopCipher, rest, 'POST');
     }
 
     /**
