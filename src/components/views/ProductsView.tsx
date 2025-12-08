@@ -11,17 +11,11 @@ interface ProductsViewProps {
 export function ProductsView({ account }: ProductsViewProps) {
     const { products, isLoading: loading, error, fetchShopData } = useShopStore();
 
-    useEffect(() => {
-        // If products are empty and not loading, try fetching
-        if (products.length === 0 && !loading && !error && account.id) {
-            fetchShopData(account.id);
-        }
-    }, [account.id, products.length, loading, error, fetchShopData]);
-
-    // Removed local fetchProducts logic as it is now handled by the store
+    // No automatic fetch - data is loaded by App.tsx on mount
+    // Only fetch when user explicitly clicks refresh
     const handleRefresh = () => {
         if (account.id) {
-            fetchShopData(account.id);
+            fetchShopData(account.id, undefined, true); // Force refresh
         }
     };
 

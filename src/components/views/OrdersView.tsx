@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ShoppingBag, Package, Clock, CheckCircle, XCircle, TruckIcon } from 'lucide-react';
 import { Account } from '../../lib/supabase';
 import { useShopStore } from '../../store/useShopStore';
@@ -9,15 +9,11 @@ interface OrdersViewProps {
 }
 
 export function OrdersView({ account }: OrdersViewProps) {
-    const { orders, isLoading: loading, fetchShopData } = useShopStore();
+    const { orders, isLoading: loading } = useShopStore();
     const [statusFilter, setStatusFilter] = useState('all');
 
-    useEffect(() => {
-        if (orders.length === 0 && !loading && account.id) {
-            fetchShopData(account.id);
-        }
-    }, [account.id, orders.length, loading, fetchShopData]);
-
+    // No automatic fetch - data is loaded by App.tsx on mount
+    // Data is already in the global store
     const filteredOrders = statusFilter === 'all'
         ? orders
         : orders.filter(order => order.order_status === statusFilter);
