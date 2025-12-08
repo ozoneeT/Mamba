@@ -132,7 +132,10 @@ export class TikTokShopApiService {
     /**
      * Generate signature for API requests (Fixed Logic)
      */
-    private generateSignature(path: string, params: Record<string, any>): string {
+    /**
+     * Generate signature for API requests (Fixed Logic)
+     */
+    private generateSignature(path: string, params: Record<string, any>, body?: any): string {
         // 1. Filter out keys that should not be signed
         const excludeKeys = ['access_token', 'sign'];
 
@@ -156,15 +159,21 @@ export class TikTokShopApiService {
         // 4. Prepend Path
         let stringToSign = `${path}${paramString}`;
 
-        // 5. Wrap with App Secret
+        // 5. Append Body if present (Step 4 in documentation)
+        if (body && Object.keys(body).length > 0) {
+            stringToSign += JSON.stringify(body);
+        }
+
+        // 6. Wrap with App Secret
         stringToSign = `${this.config.appSecret}${stringToSign}${this.config.appSecret}`;
 
         // DEBUG: Uncomment to see exactly what is being signed
         console.log(`[TikTokSign] Path: ${path}`);
         console.log(`[TikTokSign] Params:`, params);
+        console.log(`[TikTokSign] Body:`, body);
         console.log(`[TikTokSign] StringToSign: ${stringToSign}`);
 
-        // 6. HMAC-SHA256
+        // 7. HMAC-SHA256
         const hmac = crypto.createHmac('sha256', this.config.appSecret);
         hmac.update(stringToSign);
         return hmac.digest('hex');
@@ -241,7 +250,7 @@ export class TikTokShopApiService {
             }
 
             // Generate signature
-            const signature = this.generateSignature(path, signatureParams);
+            const signature = this.generateSignature(path, signatureParams, bodyParams);
             queryParams.sign = signature;
 
             const url = `${this.config.apiBase}${path}`;
