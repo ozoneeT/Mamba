@@ -1,4 +1,4 @@
-import { Plus, ShoppingBag, MapPin, ExternalLink } from 'lucide-react';
+import { Plus, ShoppingBag, MapPin, ExternalLink, RefreshCw } from 'lucide-react';
 
 interface Shop {
     shop_id: string;
@@ -12,10 +12,12 @@ interface ShopListProps {
     shops: Shop[];
     onSelectShop: (shop: Shop) => void;
     onAddShop: () => void;
+    onSyncShops: () => void;
     isLoading?: boolean;
+    isSyncing?: boolean;
 }
 
-export function ShopList({ shops, onSelectShop, onAddShop, isLoading }: ShopListProps) {
+export function ShopList({ shops, onSelectShop, onAddShop, onSyncShops, isLoading, isSyncing }: ShopListProps) {
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -34,13 +36,23 @@ export function ShopList({ shops, onSelectShop, onAddShop, isLoading }: ShopList
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-white">Your Shops</h2>
-                <button
-                    onClick={onAddShop}
-                    className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors"
-                >
-                    <Plus size={20} />
-                    <span>Add Shop</span>
-                </button>
+                <div className="flex space-x-3">
+                    <button
+                        onClick={onSyncShops}
+                        disabled={isSyncing}
+                        className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <RefreshCw size={20} className={isSyncing ? "animate-spin" : ""} />
+                        <span>{isSyncing ? 'Syncing...' : 'Sync Shops'}</span>
+                    </button>
+                    <button
+                        onClick={onAddShop}
+                        className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors"
+                    >
+                        <Plus size={20} />
+                        <span>Add Shop</span>
+                    </button>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

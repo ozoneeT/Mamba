@@ -26,6 +26,7 @@ export function Dashboard() {
   // Shop List State
   const [selectedShop, setSelectedShop] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // --- Queries ---
 
@@ -239,6 +240,28 @@ export function Dashboard() {
     }
   };
 
+  const handleSyncShops = async () => {
+    if (!selectedAccount) return;
+
+    try {
+      setIsSyncing(true);
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/shops/${selectedAccount.id}?refresh=true`);
+      const data = await response.json();
+
+      if (data.success) {
+        await queryClient.invalidateQueries({ queryKey: ['shops', selectedAccount.id] });
+        // alert('Shops synced successfully!'); // Optional: show success message
+      } else {
+        throw new Error(data.error || 'Failed to sync shops');
+      }
+    } catch (error: any) {
+      console.error('Error syncing shops:', error);
+      alert(`Failed to sync shops: ${error.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Handle TikTok Auth Redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -335,7 +358,9 @@ export function Dashboard() {
                 setViewMode('details');
               }}
               onAddShop={handleConnectShop}
+              onSyncShops={handleSyncShops}
               isLoading={isLoadingShops}
+              isSyncing={isSyncing}
             />
           ) : (
             // Details Views

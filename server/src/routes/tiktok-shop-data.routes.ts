@@ -23,9 +23,10 @@ export const getShopWithToken = async (accountId: string, shopId?: string) => {
         throw new Error('Shop not found or not connected');
     }
 
-    // Check if token is expired
+    // Check if token is expired (with 5 minute buffer)
     const tokenExpiresAt = new Date(shops.token_expires_at);
-    if (tokenExpiresAt < new Date()) {
+    const fiveMinutes = 5 * 60 * 1000;
+    if (tokenExpiresAt.getTime() - fiveMinutes < Date.now()) {
         // Refresh token
         const tokenData = await tiktokShopApi.refreshAccessToken(shops.refresh_token);
 
@@ -57,6 +58,60 @@ router.get('/shops/:accountId', async (req: Request, res: Response) => {
     try {
         const { accountId } = req.params;
 
+        const { refresh } = req.query;
+
+        // If refresh is requested, sync with TikTok first
+        if (refresh === 'true') {
+            // Get any existing shop to get the access token
+            const { data: existingShop } = await supabase
+                .from('tiktok_shops')
+                .select('*')
+                .eq('account_id', accountId)
+                .limit(1)
+                .single();
+
+            if (existingShop) {
+                // Ensure token is valid
+                let accessToken = existingShop.access_token;
+                const tokenExpiresAt = new Date(existingShop.token_expires_at);
+                if (tokenExpiresAt.getTime() - 5 * 60 * 1000 < Date.now()) {
+                    const tokenData = await tiktokShopApi.refreshAccessToken(existingShop.refresh_token);
+                    accessToken = tokenData.access_token;
+                    // Update DB
+                    await supabase
+                        .from('tiktok_shops')
+                        .update({
+                            access_token: tokenData.access_token,
+                            refresh_token: tokenData.refresh_token,
+                            token_expires_at: new Date(Date.now() + tokenData.access_token_expire_in * 1000).toISOString(),
+                            updated_at: new Date().toISOString(),
+                        })
+                        .eq('id', existingShop.id);
+                }
+
+                // Fetch authorized shops from TikTok
+                const authorizedShops = await tiktokShopApi.getAuthorizedShops(accessToken);
+
+                // Update DB with fresh list
+                for (const shop of authorizedShops) {
+                    await supabase
+                        .from('tiktok_shops')
+                        .upsert({
+                            account_id: accountId,
+                            shop_id: shop.id,
+                            shop_cipher: shop.cipher,
+                            shop_name: shop.name,
+                            region: shop.region,
+                            seller_type: shop.seller_type,
+                            access_token: accessToken, // They share the token
+                            updated_at: new Date().toISOString(),
+                        }, {
+                            onConflict: 'account_id,shop_id',
+                        });
+                }
+            }
+        }
+
         const { data: shops, error } = await supabase
             .from('tiktok_shops')
             .select('shop_id, shop_name, region, seller_type, created_at')
@@ -72,6 +127,35 @@ router.get('/shops/:accountId', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('Error fetching shops:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+
+/**
+ * GET /api/tiktok-shop/shop/:accountId
+ * Get shop details
+ */
+router.get('/shop/:accountId', async (req: Request, res: Response) => {
+    try {
+        const { accountId } = req.params;
+        const { shopId } = req.query;
+
+        const shop = await getShopWithToken(accountId, shopId as string);
+
+        const shopInfo = await tiktokShopApi.getShopInfo(
+            shop.access_token,
+            shop.shop_cipher
+        );
+
+        res.json({
+            success: true,
+            data: shopInfo,
+        });
+    } catch (error: any) {
+        console.error('Error fetching shop info:', error);
         res.status(500).json({
             success: false,
             error: error.message,
@@ -113,6 +197,46 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('Error fetching orders:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+
+/**
+ * GET /api/tiktok-shop/orders/:accountId/:orderId
+ * Get single order details
+ */
+router.get('/orders/:accountId/:orderId', async (req: Request, res: Response) => {
+    try {
+        const { accountId, orderId } = req.params;
+        const { shopId } = req.query;
+
+        const shop = await getShopWithToken(accountId, shopId as string);
+
+        // API expects a list of IDs, we just send one
+        const response = await tiktokShopApi.getOrderDetails(
+            shop.access_token,
+            shop.shop_cipher,
+            [orderId]
+        );
+
+        const order = response.orders?.[0];
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                error: 'Order not found',
+            });
+        }
+
+        res.json({
+            success: true,
+            data: order,
+        });
+    } catch (error: any) {
+        console.error('Error fetching order details:', error);
         res.status(500).json({
             success: false,
             error: error.message,
