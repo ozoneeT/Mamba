@@ -22,6 +22,8 @@ interface TokenResponse {
     open_id: string;
     seller_name: string;
     seller_base_region: string;
+    seller_id?: string; // Partner ID in Partner flow
+    [key: string]: any; // Allow other fields
 }
 
 export class TikTokShopError extends Error {
@@ -93,9 +95,8 @@ export class TikTokShopApiService {
         }
 
         // Service Auth URL is different for US vs Global
-        // User provided: https://services.tiktokshops.us/open/authorize
-        // We should probably make the base configurable or infer from region, but for now hardcode US as per user request
-        const serviceAuthBase = 'https://services.tiktokshops.us/open/authorize';
+        // User provided: https://partner.us.tiktokshop.com/open/authorize
+        const serviceAuthBase = 'https://partner.us.tiktokshop.com/open/authorize';
 
         const params = new URLSearchParams({
             service_id: this.config.serviceId,
