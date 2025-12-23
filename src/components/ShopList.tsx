@@ -1,4 +1,4 @@
-import { Plus, ShoppingBag, MapPin, ExternalLink, RefreshCw } from 'lucide-react';
+import { Plus, ShoppingBag, MapPin, ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
 
 interface Shop {
     shop_id: string;
@@ -13,11 +13,12 @@ interface ShopListProps {
     onSelectShop: (shop: Shop) => void;
     onAddShop: () => void;
     onSyncShops: () => void;
+    onDeleteShop: (shop: Shop) => void;
     isLoading?: boolean;
     isSyncing?: boolean;
 }
 
-export function ShopList({ shops, onSelectShop, onAddShop, onSyncShops, isLoading, isSyncing }: ShopListProps) {
+export function ShopList({ shops, onSelectShop, onAddShop, onSyncShops, onDeleteShop, isLoading, isSyncing }: ShopListProps) {
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -62,7 +63,17 @@ export function ShopList({ shops, onSelectShop, onAddShop, onSyncShops, isLoadin
                         onClick={() => onSelectShop(shop)}
                         className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-pink-500 transition-all cursor-pointer group relative overflow-hidden"
                     >
-                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDeleteShop(shop);
+                                }}
+                                className="p-2 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg transition-colors"
+                                title="Delete Shop"
+                            >
+                                <Trash2 size={16} />
+                            </button>
                             <ExternalLink size={20} className="text-gray-400 group-hover:text-pink-500" />
                         </div>
 

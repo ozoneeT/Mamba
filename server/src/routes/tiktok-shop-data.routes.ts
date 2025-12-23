@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { tiktokShopApi } from '../services/tiktok-shop-api.service.js';
+import { tiktokShopApi, TikTokShopError } from '../services/tiktok-shop-api.service.js';
 import { supabase } from '../config/supabase.js';
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 /**
  * Helper function to get shop with valid token
  */
-export const getShopWithToken = async (accountId: string, shopId?: string) => {
+export const getShopWithToken = async (accountId: string, shopId?: string, forceRefresh: boolean = false) => {
     let query = supabase
         .from('tiktok_shops')
         .select('*')
@@ -23,10 +23,12 @@ export const getShopWithToken = async (accountId: string, shopId?: string) => {
         throw new Error('Shop not found or not connected');
     }
 
-    // Check if token is expired (with 5 minute buffer)
+    // Check if token is expired (with 5 minute buffer) OR if forceRefresh is requested
     const tokenExpiresAt = new Date(shops.token_expires_at);
     const fiveMinutes = 5 * 60 * 1000;
-    if (tokenExpiresAt.getTime() - fiveMinutes < Date.now()) {
+
+    if (forceRefresh || (tokenExpiresAt.getTime() - fiveMinutes < Date.now())) {
+        console.log(`Refreshing token for shop ${shops.shop_name} (Force: ${forceRefresh})`);
         // Refresh token
         const tokenData = await tiktokShopApi.refreshAccessToken(shops.refresh_token);
 
@@ -45,9 +47,35 @@ export const getShopWithToken = async (accountId: string, shopId?: string) => {
             .eq('id', shops.id);
 
         shops.access_token = tokenData.access_token;
+        shops.shop_cipher = shops.shop_cipher; // Ensure cipher is passed along
     }
 
     return shops;
+}
+
+/**
+ * Helper to execute API calls with auto-refresh on 105002 error
+ */
+async function executeWithRefresh<T>(
+    accountId: string,
+    shopId: string | undefined,
+    operation: (token: string, cipher: string) => Promise<T>
+): Promise<T> {
+    try {
+        // First try with existing token (will refresh if close to expiry)
+        const shop = await getShopWithToken(accountId, shopId);
+        return await operation(shop.access_token, shop.shop_cipher);
+    } catch (error: any) {
+        // Check for Expired Credentials error (105002)
+        if (error instanceof TikTokShopError && error.code === 105002) {
+            console.log('Token expired (105002), forcing refresh and retrying...');
+            // Force refresh token
+            const shop = await getShopWithToken(accountId, shopId, true);
+            // Retry operation with new token
+            return await operation(shop.access_token, shop.shop_cipher);
+        }
+        throw error;
+    }
 }
 
 /**
@@ -143,11 +171,10 @@ router.get('/shop/:accountId', async (req: Request, res: Response) => {
         const { accountId } = req.params;
         const { shopId } = req.query;
 
-        const shop = await getShopWithToken(accountId, shopId as string);
-
-        const shopInfo = await tiktokShopApi.getShopInfo(
-            shop.access_token,
-            shop.shop_cipher
+        const shopInfo = await executeWithRefresh(
+            accountId,
+            shopId as string,
+            (token, cipher) => tiktokShopApi.getShopInfo(token, cipher)
         );
 
         res.json({
@@ -172,8 +199,6 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
         const { accountId } = req.params;
         const { shopId, status, page = '1', pageSize = '20' } = req.query;
 
-        const shop = await getShopWithToken(accountId, shopId as string);
-
         const params: any = {
             page_size: parseInt(pageSize as string),
             page_number: parseInt(page as string)
@@ -183,12 +208,16 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
             params.order_status = status;
         }
 
-        const orders = await tiktokShopApi.makeApiRequest(
-            '/order/202309/orders/search', // Updated endpoint
-            shop.access_token,
-            shop.shop_cipher,
-            params,
-            'POST'
+        const orders = await executeWithRefresh(
+            accountId,
+            shopId as string,
+            (token, cipher) => tiktokShopApi.makeApiRequest(
+                '/order/202309/orders/search', // Updated endpoint
+                token,
+                cipher,
+                params,
+                'POST'
+            )
         );
 
         res.json({
@@ -213,13 +242,15 @@ router.get('/orders/:accountId/:orderId', async (req: Request, res: Response) =>
         const { accountId, orderId } = req.params;
         const { shopId } = req.query;
 
-        const shop = await getShopWithToken(accountId, shopId as string);
-
         // API expects a list of IDs, we just send one
-        const response = await tiktokShopApi.getOrderDetails(
-            shop.access_token,
-            shop.shop_cipher,
-            [orderId]
+        const response = await executeWithRefresh(
+            accountId,
+            shopId as string,
+            (token, cipher) => tiktokShopApi.getOrderDetails(
+                token,
+                cipher,
+                [orderId]
+            )
         );
 
         const order = response.orders?.[0];
@@ -253,17 +284,19 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
         const { accountId } = req.params;
         const { shopId, page = '1', pageSize = '20' } = req.query;
 
-        const shop = await getShopWithToken(accountId, shopId as string);
-
         const params = {
             page_size: parseInt(pageSize as string),
             page_number: parseInt(page as string)
         };
 
-        const response = await tiktokShopApi.searchProducts(
-            shop.access_token,
-            shop.shop_cipher,
-            params
+        const response = await executeWithRefresh(
+            accountId,
+            shopId as string,
+            (token, cipher) => tiktokShopApi.searchProducts(
+                token,
+                cipher,
+                params
+            )
         );
 
         // Transform the response to match frontend expectations
@@ -310,8 +343,6 @@ router.get('/settlements/:accountId', async (req: Request, res: Response) => {
         const { accountId } = req.params;
         const { shopId, startTime, endTime } = req.query;
 
-        const shop = await getShopWithToken(accountId, shopId as string);
-
         const params: any = {
             sort_field: 'settlement_time',
             sort_order: 'DESC'
@@ -320,11 +351,15 @@ router.get('/settlements/:accountId', async (req: Request, res: Response) => {
         if (startTime) params.start_time = parseInt(startTime as string);
         if (endTime) params.end_time = parseInt(endTime as string);
 
-        const settlements = await tiktokShopApi.makeApiRequest(
-            '/finance/202309/statements',
-            shop.access_token,
-            shop.shop_cipher,
-            params
+        const settlements = await executeWithRefresh(
+            accountId,
+            shopId as string,
+            (token, cipher) => tiktokShopApi.makeApiRequest(
+                '/finance/202309/statements',
+                token,
+                cipher,
+                params
+            )
         );
 
         res.json({
@@ -349,12 +384,14 @@ router.get('/performance/:accountId', async (req: Request, res: Response) => {
         const { accountId } = req.params;
         const { shopId } = req.query;
 
-        const shop = await getShopWithToken(accountId, shopId as string);
-
-        const performance = await tiktokShopApi.makeApiRequest(
-            '/seller/202309/performance',
-            shop.access_token,
-            shop.shop_cipher
+        const performance = await executeWithRefresh(
+            accountId,
+            shopId as string,
+            (token, cipher) => tiktokShopApi.makeApiRequest(
+                '/seller/202309/performance',
+                token,
+                cipher
+            )
         );
 
         res.json({

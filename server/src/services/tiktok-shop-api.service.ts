@@ -23,6 +23,20 @@ interface TokenResponse {
     seller_base_region: string;
 }
 
+export class TikTokShopError extends Error {
+    code: number;
+    requestId?: string;
+    detail?: string;
+
+    constructor(message: string, code: number, requestId?: string, detail?: string) {
+        super(message);
+        this.name = 'TikTokShopError';
+        this.code = code;
+        this.requestId = requestId;
+        this.detail = detail;
+    }
+}
+
 export class TikTokShopApiService {
     private config: TikTokShopConfig;
 
@@ -258,7 +272,7 @@ export class TikTokShopApiService {
             console.log(`[TikTokApi] ${method} ${url}`);
             console.log('[TikTokApi] Query Params:', JSON.stringify(queryParams, null, 2));
             console.log('[TikTokApi] Body Params:', JSON.stringify(bodyParams, null, 2));
-            console.log('[TikTokApi] Headers:', JSON.stringify(headers, null, 2));
+            // console.log('[TikTokApi] Headers:', JSON.stringify(headers, null, 2));
 
             let response;
             if (method === 'GET') {
@@ -281,15 +295,27 @@ export class TikTokShopApiService {
                 // Enhanced error logging
                 console.error(`TikTok API Error [${response.data.code}]: ${response.data.message}`);
                 console.error(`Req ID: ${response.data.request_id}`);
-                throw new Error(response.data.message);
+                throw new TikTokShopError(
+                    response.data.message,
+                    response.data.code,
+                    response.data.request_id,
+                    response.data.detail
+                );
             }
 
             return response.data.data;
         } catch (error: any) {
             // Detailed error reporting for debugging signatures
+            if (error instanceof TikTokShopError) {
+                throw error;
+            }
             if (error.response?.data) {
                 console.error('API Error Response:', JSON.stringify(error.response.data, null, 2));
-                throw new Error(error.response.data.message || 'TikTok API request failed');
+                // Try to extract code from error response if available
+                const code = error.response.data.code || 500;
+                const message = error.response.data.message || 'TikTok API request failed';
+                const requestId = error.response.data.request_id;
+                throw new TikTokShopError(message, code, requestId);
             }
             throw error;
         }

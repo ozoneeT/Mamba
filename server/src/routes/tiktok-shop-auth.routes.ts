@@ -261,4 +261,35 @@ router.delete('/disconnect/:accountId', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * DELETE /api/tiktok-shop/auth/disconnect/:accountId/:shopId
+ * Disconnect specific TikTok Shop
+ */
+router.delete('/disconnect/:accountId/:shopId', async (req: Request, res: Response) => {
+    try {
+        const { accountId, shopId } = req.params;
+
+        const { error } = await supabase
+            .from('tiktok_shops')
+            .delete()
+            .eq('account_id', accountId)
+            .eq('shop_id', shopId);
+
+        if (error) {
+            throw error;
+        }
+
+        res.json({
+            success: true,
+            message: 'TikTok Shop disconnected successfully',
+        });
+    } catch (error: any) {
+        console.error('Error disconnecting TikTok Shop:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+
 export default router;

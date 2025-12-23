@@ -240,6 +240,35 @@ export function Dashboard() {
     }
   };
 
+  const handleDeleteShop = async (shop: any) => {
+    if (!selectedAccount || !shop) return;
+
+    if (!confirm(`Are you sure you want to delete ${shop.shop_name}? This will remove all data associated with this shop.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/disconnect/${selectedAccount.id}/${shop.shop_id}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        await queryClient.invalidateQueries({ queryKey: ['shops', selectedAccount.id] });
+        // If the deleted shop was selected, deselect it
+        if (selectedShop?.shop_id === shop.shop_id) {
+          setSelectedShop(null);
+          setViewMode('list');
+        }
+      } else {
+        throw new Error(data.error || 'Failed to delete shop');
+      }
+    } catch (error: any) {
+      console.error('Error deleting shop:', error);
+      alert(`Failed to delete shop: ${error.message}`);
+    }
+  };
+
   const handleSyncShops = async () => {
     if (!selectedAccount) return;
 
@@ -359,6 +388,7 @@ export function Dashboard() {
               }}
               onAddShop={handleConnectShop}
               onSyncShops={handleSyncShops}
+              onDeleteShop={handleDeleteShop}
               isLoading={isLoadingShops}
               isSyncing={isSyncing}
             />
