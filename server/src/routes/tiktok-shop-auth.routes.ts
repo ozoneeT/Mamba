@@ -48,6 +48,45 @@ router.post('/start', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/tiktok-shop/auth/partner/start
+ * Start the OAuth flow for Partner (Agency)
+ */
+router.post('/partner/start', async (req: Request, res: Response) => {
+    try {
+        const { accountId, accountName } = req.body;
+
+        if (!accountId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Account ID is required',
+            });
+        }
+
+        // Generate state parameter to prevent CSRF and pass context
+        const state = Buffer.from(JSON.stringify({
+            accountId,
+            accountName,
+            nonce: Math.random().toString(36).substring(7),
+            type: 'partner' // Mark as partner flow
+        })).toString('base64');
+
+        // Generate Partner Authorization URL
+        const authUrl = tiktokShopApi.generateServiceAuthUrl(state);
+
+        res.json({
+            success: true,
+            authUrl,
+        });
+    } catch (error: any) {
+        console.error('Error starting partner auth:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+
+/**
  * GET /api/tiktok-shop/auth/callback
  * Handle OAuth callback from TikTok
  */
