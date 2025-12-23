@@ -12,13 +12,14 @@ interface ShopListProps {
     shops: Shop[];
     onSelectShop: (shop: Shop) => void;
     onAddShop: () => void;
+    onAddAgency?: () => void;
     onSyncShops: () => void;
     onDeleteShop: (shop: Shop) => void;
     isLoading?: boolean;
     isSyncing?: boolean;
 }
 
-export function ShopList({ shops, onSelectShop, onAddShop, onSyncShops, onDeleteShop, isLoading, isSyncing }: ShopListProps) {
+export function ShopList({ shops, onSelectShop, onAddShop, onAddAgency, onSyncShops, onDeleteShop, isLoading, isSyncing }: ShopListProps) {
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -53,6 +54,15 @@ export function ShopList({ shops, onSelectShop, onAddShop, onSyncShops, onDelete
                         <Plus size={20} />
                         <span>Add Shop</span>
                     </button>
+                    {onAddAgency && (
+                        <button
+                            onClick={onAddAgency}
+                            className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                        >
+                            <Plus size={20} />
+                            <span>Add Agency</span>
+                        </button>
+                    )}
                 </div>
             </div>
 

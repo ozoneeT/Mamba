@@ -4,12 +4,14 @@ import { Store, LogOut } from 'lucide-react';
 
 interface WelcomeScreenProps {
     onConnect?: () => void;
+    onConnectAgency?: () => void;
     isConnecting?: boolean;
 }
 
-export default function WelcomeScreen({ onConnect, isConnecting = false }: WelcomeScreenProps) {
+export default function WelcomeScreen({ onConnect, onConnectAgency, isConnecting = false }: WelcomeScreenProps) {
     const { profile, signOut } = useAuth();
     const [localConnecting, setLocalConnecting] = useState(false);
+    const [localAgencyConnecting, setLocalAgencyConnecting] = useState(false);
 
     const handleConnect = async () => {
         if (onConnect) {
@@ -22,7 +24,18 @@ export default function WelcomeScreen({ onConnect, isConnecting = false }: Welco
         }
     };
 
-    const isLoading = isConnecting || localConnecting;
+    const handleConnectAgency = async () => {
+        if (onConnectAgency) {
+            setLocalAgencyConnecting(true);
+            try {
+                await onConnectAgency();
+            } finally {
+                setLocalAgencyConnecting(false);
+            }
+        }
+    };
+
+    const isLoading = isConnecting || localConnecting || localAgencyConnecting;
 
     return (
         <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 flex items-center justify-center p-6 overflow-hidden">
@@ -102,6 +115,25 @@ export default function WelcomeScreen({ onConnect, isConnecting = false }: Welco
                                 </span>
                             ) : (
                                 'Connect TikTok Shop'
+                            )}
+                        </button>
+
+                        <div className="mt-4 flex items-center justify-center">
+                            <span className="text-gray-400 text-sm">or</span>
+                        </div>
+
+                        <button
+                            onClick={handleConnectAgency}
+                            disabled={isLoading}
+                            className="w-full mt-4 bg-gray-700 text-white px-6 py-4 rounded-xl font-semibold text-lg hover:bg-gray-600 transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none active:scale-[0.98] border border-gray-600"
+                        >
+                            {localAgencyConnecting ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                                    Connecting Agency...
+                                </span>
+                            ) : (
+                                'Connect as Agency (Partner)'
                             )}
                         </button>
                     </div>

@@ -215,6 +215,32 @@ export function Dashboard() {
     }
   };
 
+  const handleConnectAgency = async () => {
+    try {
+      const account = await ensureAccountExists();
+
+      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/partner/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: account.id,
+          accountName: account.name
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.authUrl || data.url) {
+        window.location.href = data.authUrl || data.url;
+      } else {
+        alert(`Failed to start agency authorization. Response: ${JSON.stringify(data)}`);
+      }
+    } catch (error: any) {
+      console.error('Error starting agency auth:', error);
+      alert(`Failed to start agency authorization: ${error.message}`);
+    }
+  };
+
   const finalizeAuth = async (code: string, accountId: string) => {
     try {
       window.history.replaceState({}, '', window.location.pathname);
@@ -339,6 +365,7 @@ export function Dashboard() {
     return (
       <WelcomeScreen
         onConnect={handleConnectShop}
+        onConnectAgency={handleConnectAgency}
         isConnecting={false}
       />
     );
@@ -387,6 +414,7 @@ export function Dashboard() {
                 setViewMode('details');
               }}
               onAddShop={handleConnectShop}
+              onAddAgency={handleConnectAgency}
               onSyncShops={handleSyncShops}
               onDeleteShop={handleDeleteShop}
               isLoading={isLoadingShops}

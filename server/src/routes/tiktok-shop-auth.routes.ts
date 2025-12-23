@@ -161,7 +161,7 @@ router.get('/callback', async (req: Request, res: Response) => {
 
 /**
  * POST /api/tiktok-shop/auth/finalize
- * Finalize OAuth flow with account ID from frontend
+ * Exchange code for tokens and save shop data
  */
 router.post('/finalize', async (req: Request, res: Response) => {
     try {

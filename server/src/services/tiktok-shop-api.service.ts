@@ -11,6 +11,7 @@ interface TikTokShopConfig {
     appSecret: string;
     apiBase: string;
     authBase: string;
+    serviceId?: string;
 }
 
 interface TokenResponse {
@@ -47,6 +48,7 @@ export class TikTokShopApiService {
             appSecret: (process.env.TIKTOK_SHOP_APP_SECRET || '').trim(),
             apiBase: process.env.TIKTOK_SHOP_API_BASE || 'https://open-api.tiktokglobalshop.com',
             authBase: process.env.TIKTOK_AUTH_BASE || 'https://auth.tiktok-shops.com',
+            serviceId: process.env.TIKTOK_SHOP_SERVICE_ID,
         };
 
         // Debug logging
@@ -80,6 +82,27 @@ export class TikTokShopApiService {
         });
 
         return `${this.config.authBase}/api/v2/authorize?${params.toString()}`;
+    }
+
+    /**
+     * Generate Service (Partner) OAuth authorization URL
+     */
+    generateServiceAuthUrl(state: string): string {
+        if (!this.config.serviceId) {
+            throw new Error('TikTok Shop Service ID not configured');
+        }
+
+        // Service Auth URL is different for US vs Global
+        // User provided: https://services.tiktokshops.us/open/authorize
+        // We should probably make the base configurable or infer from region, but for now hardcode US as per user request
+        const serviceAuthBase = 'https://services.tiktokshops.us/open/authorize';
+
+        const params = new URLSearchParams({
+            service_id: this.config.serviceId,
+            state: state,
+        });
+
+        return `${serviceAuthBase}?${params.toString()}`;
     }
 
     /**
