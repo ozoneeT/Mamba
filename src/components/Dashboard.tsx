@@ -95,11 +95,14 @@ export function Dashboard() {
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
+  const [hasSkippedWelcome, setHasSkippedWelcome] = useState(false);
+
   // Handle Shop Selection & Welcome Screen logic
   useEffect(() => {
     if (isShopsFetched) {
       if (shops.length > 0) {
         setShowWelcome(false);
+        setHasSkippedWelcome(false); // Reset skip state when shops are found
         // Auto-select if only one shop and we haven't selected one yet (or just connected)
         // Or if we are in a state where we should be viewing details
         if (shops.length === 1 && !selectedShop) {
@@ -417,15 +420,17 @@ export function Dashboard() {
 
   // Full screen Welcome if no account or no shops (and not loading)
   // We check !isLoadingShops to avoid flashing welcome screen while fetching shops
-  // CRITICAL: Bypassed for admins
-  const isUserAdmin = profile?.role === 'admin';
-  const needsWelcome = !isUserAdmin && ((!selectedAccount && !isLoadingAccounts) || (showWelcome && !isLoadingShops));
+  const needsWelcome = !hasSkippedWelcome && ((!selectedAccount && !isLoadingAccounts) || (showWelcome && !isLoadingShops));
 
   if (needsWelcome) {
     return (
       <WelcomeScreen
         onConnect={handleConnectShop}
         onConnectAgency={handleConnectAgency}
+        onSkip={() => {
+          setHasSkippedWelcome(true);
+          setViewMode('details');
+        }}
         isConnecting={false}
       />
     );
@@ -483,17 +488,16 @@ export function Dashboard() {
           ) : (
             // Details Views
             (() => {
-              if (!selectedAccount) return null;
               switch (activeTab) {
-                case 'overview': return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} onNavigate={setActiveTab} />;
+                case 'overview': return selectedAccount ? <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} onNavigate={setActiveTab} /> : null;
                 case 'orders': return <OrdersView />;
-                case 'products': return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                case 'products': return selectedAccount ? <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
                 case 'profit-loss': return <ProfitLossView shopId={selectedShop?.shop_id} />;
                 case 'profile': return <ProfileView />;
                 case 'admin-dashboard': return <AdminDashboard />;
                 case 'admin-users': return <AdminUserManagement />;
                 case 'admin-stores': return <AdminStoreManagement />;
-                default: return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
+                default: return selectedAccount ? <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
               }
             })()
           )}

@@ -5,16 +5,14 @@ import { Store, LogOut } from 'lucide-react';
 interface WelcomeScreenProps {
     onConnect?: () => void;
     onConnectAgency?: () => void;
+    onSkip?: () => void;
     isConnecting?: boolean;
 }
 
-export default function WelcomeScreen({ onConnect, onConnectAgency, isConnecting = false }: WelcomeScreenProps) {
+export default function WelcomeScreen({ onConnect, onConnectAgency, onSkip, isConnecting = false }: WelcomeScreenProps) {
     const { profile, signOut } = useAuth();
     const [localConnecting, setLocalConnecting] = useState(false);
     const [localAgencyConnecting, setLocalAgencyConnecting] = useState(false);
-
-    // Failsafe: Never show welcome screen to admins
-    if (profile?.role === 'admin') return null;
 
     const handleConnect = async () => {
         if (onConnect) {
@@ -42,7 +40,15 @@ export default function WelcomeScreen({ onConnect, onConnectAgency, isConnecting
 
     return (
         <div className="fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 flex items-center justify-center p-6 overflow-hidden">
-            <div className="absolute top-6 right-6 z-10">
+            <div className="absolute top-6 right-6 z-10 flex gap-3">
+                {profile?.role === 'admin' && onSkip && (
+                    <button
+                        onClick={onSkip}
+                        className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all border border-white/20 backdrop-blur-sm text-sm font-medium"
+                    >
+                        Skip to Dashboard
+                    </button>
+                )}
                 <button
                     onClick={() => signOut()}
                     className="flex items-center gap-2 px-4 py-2 bg-gray-800/50 hover:bg-gray-800 text-gray-300 hover:text-white rounded-lg transition-all border border-gray-700 hover:border-gray-600 backdrop-blur-sm"
