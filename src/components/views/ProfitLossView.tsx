@@ -10,6 +10,7 @@ interface ProfitLossViewProps {
 
 interface ProfitLossMetrics {
   total_revenue: number;
+  unsettled_revenue: number;
   ad_revenue: number;
   sales_revenue: number;
   affiliate_revenue: number;
@@ -60,25 +61,31 @@ export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
       const filteredStatements = finance.statements.filter(s => s.statement_time >= start && s.statement_time <= end);
 
       // Calculate Metrics
-      const totalRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
+      const salesRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
       const netPayout = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount), 0);
+
+      // Calculate Unsettled Revenue (Estimated)
+      const unsettledRevenue = finance.unsettledOrders.reduce((sum, t) => sum + parseFloat(t.est_revenue_amount || '0'), 0);
+
+      const totalRevenue = salesRevenue + unsettledRevenue;
 
       // Estimates (since we don't have this data from API yet)
       const adSpend = 0; // Would need Ads API
       const productCosts = totalRevenue * 0.3; // Estimated 30% COGS
       const operationalCosts = totalRevenue * 0.1; // Estimated 10% Ops
 
-      const totalCosts = (totalRevenue - netPayout) + productCosts + operationalCosts; // Fees + COGS + Ops
+      const totalCosts = (salesRevenue - netPayout) + productCosts + operationalCosts; // Fees + COGS + Ops
       const grossProfit = totalRevenue - productCosts;
-      const netProfit = netPayout - productCosts - operationalCosts;
+      const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
 
       const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
       const roi = totalCosts > 0 ? ((netProfit / totalCosts) * 100) : 0;
 
       setPlMetrics({
         total_revenue: totalRevenue,
+        unsettled_revenue: unsettledRevenue,
         ad_revenue: 0,
-        sales_revenue: totalRevenue,
+        sales_revenue: salesRevenue,
         affiliate_revenue: 0,
         total_costs: totalCosts,
         ad_spend: adSpend,
@@ -177,6 +184,19 @@ export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
               </div>
             </div>
             <p className="text-xl font-bold text-blue-400">{formatCurrency(plMetrics?.sales_revenue || 0)}</p>
+          </div>
+
+          <div className="flex items-center justify-between py-3 border-b border-gray-700">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-cyan-500 to-teal-500 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-white font-medium">Unsettled Revenue</p>
+                <p className="text-sm text-gray-400">Estimated (not yet paid)</p>
+              </div>
+            </div>
+            <p className="text-xl font-bold text-cyan-400">{formatCurrency(plMetrics?.unsettled_revenue || 0)}</p>
           </div>
 
           <div className="flex items-center justify-between py-3 border-b border-gray-700">

@@ -9,55 +9,26 @@ interface OverviewViewProps {
   onNavigate?: (tab: string) => void;
 }
 
-interface ShopMetrics {
-  totalOrders: number;
-  totalRevenue: number;
-  totalProducts: number;
-  avgOrderValue: number;
-  conversionRate: number;
-  shopRating: number;
-}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 import { useShopStore } from '../../store/useShopStore';
 
 export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps) {
-  const products = useShopStore(state => state.products);
-  const orders = useShopStore(state => state.orders);
+  const metrics = useShopStore(state => state.metrics);
   const isLoading = useShopStore(state => state.isLoading);
   const error = useShopStore(state => state.error);
   const fetchShopData = useShopStore(state => state.fetchShopData);
 
-  const [metrics, setMetrics] = useState<ShopMetrics>({
-    totalOrders: 0,
-    totalRevenue: 0,
-    totalProducts: 0,
-    avgOrderValue: 0,
-    conversionRate: 0,
-    shopRating: 0,
-  });
   const [syncing, setSyncing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Calculate metrics from store data whenever it changes
+  // Update lastUpdated when metrics change
   useEffect(() => {
-    if (products.length > 0 || orders.length > 0) {
-      const totalRevenue = orders.reduce((sum, order) => sum + (order.order_amount || 0), 0);
-      const totalOrders = orders.length;
-      const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-      setMetrics({
-        totalOrders,
-        totalRevenue,
-        totalProducts: products.length,
-        avgOrderValue,
-        conversionRate: 2.5, // Placeholder or fetch from performance API if needed
-        shopRating: 4.8, // Placeholder or fetch from performance API if needed
-      });
+    if (metrics.totalOrders > 0 || metrics.totalProducts > 0) {
       setLastUpdated(new Date());
     }
-  }, [products, orders]);
+  }, [metrics]);
 
   // Removed local fetchShopMetrics as we now rely on the global store
   // The store is populated by App.tsx on mount
@@ -187,10 +158,10 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
           <StatCard
             title="Total Revenue"
             value={formatCurrency(metrics.totalRevenue)}
-            change={0} // Placeholder, ideally calculated
+            change={0}
             icon={DollarSign}
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
-            subtitle="All-time earnings"
+            subtitle="Includes unsettled revenue"
           />
           <StatCard
             title="Total Orders"

@@ -33,12 +33,29 @@ export interface Statement {
     statement_time: number;
     settlement_amount: string;
     currency: string;
-    status: string;
+    payment_status: string;
+    revenue_amount: string;
+    fee_amount: string;
+    net_sales_amount: string;
+    payment_id?: string;
+    payment_time?: number;
+}
+
+interface ShopMetrics {
+    totalOrders: number;
+    totalRevenue: number;
+    totalProducts: number;
+    totalNet: number;
+    avgOrderValue: number;
+    conversionRate: number;
+    shopRating: number;
+    unsettledRevenue?: number;
 }
 
 interface ShopState {
     products: Product[];
     orders: Order[];
+    metrics: ShopMetrics;
     finance: {
         statements: Statement[];
         payments: any[];
@@ -60,6 +77,15 @@ interface ShopState {
 export const useShopStore = create<ShopState>((set, get) => ({
     products: [],
     orders: [],
+    metrics: {
+        totalOrders: 0,
+        totalRevenue: 0,
+        totalProducts: 0,
+        totalNet: 0,
+        avgOrderValue: 0,
+        conversionRate: 0,
+        shopRating: 0
+    },
     finance: {
         statements: [],
         payments: [],
@@ -76,6 +102,15 @@ export const useShopStore = create<ShopState>((set, get) => ({
     clearData: () => set({
         products: [],
         orders: [],
+        metrics: {
+            totalOrders: 0,
+            totalRevenue: 0,
+            totalProducts: 0,
+            totalNet: 0,
+            avgOrderValue: 0,
+            conversionRate: 0,
+            shopRating: 0
+        },
         finance: { statements: [], payments: [], withdrawals: [], unsettledOrders: [] },
         lastFetchTime: null,
         lastFetchShopId: null
@@ -90,6 +125,15 @@ export const useShopStore = create<ShopState>((set, get) => ({
             set({
                 products: [],
                 orders: [],
+                metrics: {
+                    totalOrders: 0,
+                    totalRevenue: 0,
+                    totalProducts: 0,
+                    totalNet: 0,
+                    avgOrderValue: 0,
+                    conversionRate: 0,
+                    shopRating: 0
+                },
                 finance: { statements: [], payments: [], withdrawals: [], unsettledOrders: [] },
                 error: null,
                 lastFetchShopId: shopId
@@ -108,13 +152,17 @@ export const useShopStore = create<ShopState>((set, get) => ({
         try {
             console.log('[Store] Fetching shop data from API...');
 
-            // Fetch Products
-            const productsUrl = `${API_BASE_URL}/api/tiktok-shop/products/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
+            // Fetch Products (Synced from DB)
+            const productsUrl = `${API_BASE_URL}/api/tiktok-shop/products/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
             const productsPromise = fetch(productsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
 
-            // Fetch Orders
-            const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
+            // Fetch Orders (Synced from DB)
+            const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
             const ordersPromise = fetch(ordersUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
+
+            // Fetch Metrics (Database-backed)
+            const metricsUrl = `${API_BASE_URL}/api/tiktok-shop/metrics/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
+            const metricsPromise = fetch(metricsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
 
             // Fetch Finance Data (Parallel)
             const financeBaseUrl = `${API_BASE_URL}/api/tiktok-shop/finance`;
@@ -125,9 +173,10 @@ export const useShopStore = create<ShopState>((set, get) => ({
             const withdrawalsPromise = fetch(`${financeBaseUrl}/withdrawals/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
             const unsettledPromise = fetch(`${financeBaseUrl}/unsettled/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
 
-            const [productsResult, ordersResult, statementsResult, paymentsResult, withdrawalsResult, unsettledResult] = await Promise.all([
+            const [productsResult, ordersResult, metricsResult, statementsResult, paymentsResult, withdrawalsResult, unsettledResult] = await Promise.all([
                 productsPromise,
                 ordersPromise,
+                metricsPromise,
                 statementsPromise,
                 paymentsPromise,
                 withdrawalsPromise,
@@ -154,11 +203,11 @@ export const useShopStore = create<ShopState>((set, get) => ({
             }));
 
             // Transform orders
-            const orders: Order[] = (ordersResult.data?.orders || []).map((o: any) => ({
+            const orders: Order[] = (ordersResult.data?.orders || ordersResult.data?.order_list || []).map((o: any) => ({
                 order_id: o.id,
                 order_status: o.status,
-                order_amount: parseFloat(o.payment?.total_amount || '0'),
-                currency: o.payment?.currency || 'USD',
+                order_amount: parseFloat(o.payment_info?.total_amount || o.payment?.total_amount || '0'),
+                currency: o.payment_info?.currency || o.payment?.currency || 'USD',
                 created_time: o.create_time,
                 line_items: (o.line_items || []).map((item: any) => ({
                     id: item.id,
@@ -170,14 +219,25 @@ export const useShopStore = create<ShopState>((set, get) => ({
             }));
 
             // Transform finance data
-            const statements = statementsResult.success ? (statementsResult.data?.statement_list || []) : [];
-            const payments = paymentsResult.success ? (paymentsResult.data?.payment_list || []) : [];
-            const withdrawals = withdrawalsResult.success ? (withdrawalsResult.data?.withdrawal_list || []) : [];
-            const unsettledOrders = unsettledResult.success ? (unsettledResult.data?.order_list || []) : [];
+            const statements = statementsResult.success ? (statementsResult.data?.statements || statementsResult.data?.statement_list || []) : [];
+            const payments = paymentsResult.success ? (paymentsResult.data?.payments || paymentsResult.data?.payment_list || []) : [];
+            const withdrawals = withdrawalsResult.success ? (withdrawalsResult.data?.withdrawals || withdrawalsResult.data?.withdrawal_list || []) : [];
+            const unsettledOrders = unsettledResult.success ? (unsettledResult.data?.transactions || unsettledResult.data?.order_list || []) : [];
+
+            // Calculate Unsettled Revenue from the fetched unsettled orders
+            const unsettledRevenue = unsettledOrders.reduce((sum: number, t: any) => sum + parseFloat(t.est_revenue_amount || '0'), 0);
+
+            // Transform metrics
+            const metrics: ShopMetrics = metricsResult.success ? {
+                ...metricsResult.data,
+                unsettledRevenue,
+                totalRevenue: (metricsResult.data.totalRevenue || 0) + unsettledRevenue
+            } : get().metrics;
 
             set({
                 products: products.length > 0 ? products : get().products,
                 orders: orders.length > 0 ? orders : get().orders,
+                metrics: metrics,
                 finance: {
                     statements: statements.length > 0 ? statements : get().finance.statements,
                     payments: payments.length > 0 ? payments : get().finance.payments,
