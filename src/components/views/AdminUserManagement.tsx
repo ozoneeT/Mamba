@@ -93,20 +93,27 @@ export function AdminUserManagement() {
                                     </div>
                                 </td>
                                 <td className="px-6 py-4">
-                                    <select
-                                        value={user.role}
-                                        onChange={(e) => {
-                                            setUpdatingUserId(user.id);
-                                            updateRoleMutation.mutate({ userId: user.id, role: e.target.value });
-                                        }}
-                                        disabled={updatingUserId === user.id}
-                                        className="bg-gray-700 border border-gray-600 text-white text-xs rounded-lg focus:ring-pink-500 focus:border-pink-500 block w-full p-2.5"
-                                    >
-                                        <option value="client">User</option>
-                                        <option value="moderator">Moderator</option>
-                                        <option value="accountant">Accountant</option>
-                                        <option value="admin">Admin</option>
-                                    </select>
+                                    <div className="relative">
+                                        <select
+                                            value={user.role}
+                                            onChange={(e) => {
+                                                setUpdatingUserId(user.id);
+                                                updateRoleMutation.mutate({ userId: user.id, role: e.target.value });
+                                            }}
+                                            disabled={updatingUserId === user.id}
+                                            className={`bg-gray-700 border border-gray-600 text-white text-xs rounded-lg focus:ring-pink-500 focus:border-pink-500 block w-full p-2.5 ${updatingUserId === user.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                            <option value="client">User</option>
+                                            <option value="moderator">Moderator</option>
+                                            <option value="accountant">Accountant</option>
+                                            <option value="admin">Admin</option>
+                                        </select>
+                                        {updatingUserId === user.id && (
+                                            <div className="absolute right-8 top-1/2 -translate-y-1/2">
+                                                <div className="w-4 h-4 border-2 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                                            </div>
+                                        )}
+                                    </div>
                                 </td>
                                 <td className="px-6 py-4">
                                     <div className="flex flex-wrap gap-2">

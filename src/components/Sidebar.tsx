@@ -14,6 +14,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
     { id: 'orders', label: 'Orders', icon: ShoppingBag },
     { id: 'products', label: 'Products', icon: Package },
     { id: 'profit-loss', label: 'P&L Statement', icon: Calculator },
+    { id: 'profile', label: 'Profile', icon: Users },
   ];
 
   const adminMenuItems = [

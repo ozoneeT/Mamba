@@ -7,6 +7,7 @@ import { ProductsView } from './views/ProductsView';
 import { AdminDashboard } from './views/AdminDashboard';
 import { AdminUserManagement } from './views/AdminUserManagement';
 import { AdminStoreManagement } from './views/AdminStoreManagement';
+import { ProfileView } from './views/ProfileView';
 import WelcomeScreen from './WelcomeScreen';
 import { ShopList } from './ShopList';
 import { Account, supabase } from '../lib/supabase';
@@ -488,6 +489,7 @@ export function Dashboard() {
                 case 'orders': return <OrdersView />;
                 case 'products': return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
                 case 'profit-loss': return <ProfitLossView shopId={selectedShop?.shop_id} />;
+                case 'profile': return <ProfileView />;
                 case 'admin-dashboard': return <AdminDashboard />;
                 case 'admin-users': return <AdminUserManagement />;
                 case 'admin-stores': return <AdminStoreManagement />;
