@@ -48,6 +48,7 @@ export function AdminUserManagement() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+            queryClient.invalidateQueries({ queryKey: ['admin-stores'] });
             setUpdatingUserId(null);
         }
     });

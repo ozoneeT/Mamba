@@ -11,6 +11,7 @@ interface Shop {
 interface AdminAccount {
     id: string;
     account_name: string;
+    owner_role?: string;
     original_name?: string;
     stores: Shop[];
 }
@@ -62,7 +63,7 @@ function ShopCard({ shop, onSelect, onDelete }: { shop: Shop, onSelect: () => vo
 
             <div className="mt-6 pt-4 border-t border-gray-700 flex justify-between items-center text-sm text-gray-400">
                 <span>ID: {shop.shop_id}</span>
-                <span>{new Date(shop.created_at).toLocaleDateString()}</span>
+                <span>{shop.created_at ? new Date(shop.created_at).toLocaleDateString() : 'N/A'}</span>
             </div>
         </div>
     );
@@ -128,7 +129,14 @@ export function ShopList({ shops, adminAccounts, onSelectShop, onAddShop, onAddA
                                     <User className="w-5 h-5 text-pink-500" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-bold text-white">{account.account_name}</h3>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-xl font-bold text-white">{account.account_name}</h3>
+                                        {(account as any).owner_role && (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-pink-500/20 text-pink-400 border border-pink-500/30">
+                                                {(account as any).owner_role.toUpperCase()}
+                                            </span>
+                                        )}
+                                    </div>
                                     <p className="text-sm text-gray-500">{account.stores.length} connected shops</p>
                                 </div>
                             </div>

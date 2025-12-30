@@ -61,7 +61,7 @@ export function Dashboard() {
 
   // Sync selectedAccount with fetched accounts
   useEffect(() => {
-    if (isAccountsFetched) {
+    if (isAccountsFetched && viewMode === 'list') {
       if (accounts.length > 0) {
         // If we don't have a selected account, or the selected one is not in the list anymore
         if (!selectedAccount || !accounts.find(a => a.id === selectedAccount.id)) {
@@ -71,7 +71,7 @@ export function Dashboard() {
         setSelectedAccount(null);
       }
     }
-  }, [accounts, isAccountsFetched, selectedAccount]);
+  }, [accounts, isAccountsFetched, selectedAccount, viewMode]);
 
 
 
@@ -140,17 +140,41 @@ export function Dashboard() {
     }
   }, [shops, isShopsFetched, selectedAccount, isLoadingAccounts, isLoadingShops, adminAccounts, profile?.role]);
 
-  // Fetch Shop Data when a shop is selected
+  // 4. Realtime Profile Updates for selectedAccount owner
   useEffect(() => {
-    if (selectedAccount?.id && selectedShop?.shop_id) {
-      const shopStore = useShopStore.getState();
-      // Only fetch if it's a different shop or we don't have data yet
-      if (shopStore.lastFetchShopId !== selectedShop.shop_id || shopStore.products.length === 0) {
-        console.log('[Dashboard] Triggering fetch for:', selectedShop.shop_name);
-        shopStore.fetchShopData(selectedAccount.id, selectedShop.shop_id);
-      }
-    }
-  }, [selectedAccount?.id, selectedShop?.shop_id]);
+    const ownerId = (selectedAccount as any)?.owner_id;
+    if (!ownerId) return;
+
+    console.log('[Dashboard] Setting up realtime subscription for owner:', ownerId);
+
+    const channel = supabase
+      .channel(`owner-profile-${ownerId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${ownerId}`
+        },
+        (payload) => {
+          console.log('[Dashboard] Owner profile updated:', payload.new);
+          setSelectedAccount(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              owner_role: payload.new.role,
+              tiktok_handle: payload.new.full_name || prev.tiktok_handle // Update name too if it changed
+            };
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [(selectedAccount as any)?.owner_id]);
 
   // Prefetch Admin Data on Mount
   useEffect(() => {
@@ -500,6 +524,8 @@ export function Dashboard() {
               shops={shops}
               adminAccounts={adminAccounts}
               onSelectShop={(shop: any, accountContext?: any) => {
+                const targetAccountId = accountContext?.id || selectedAccount?.id;
+
                 if (accountContext) {
                   // If we have account context (admin mode), update selectedAccount
                   // This allows the details views to fetch data for the correct account
@@ -509,11 +535,20 @@ export function Dashboard() {
                     status: 'active',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
-                    tiktok_handle: ''
-                  } as Account);
+                    tiktok_handle: accountContext.owner_full_name || '',
+                    owner_id: accountContext.owner_id, // Adding this for realtime
+                    owner_role: accountContext.owner_role // Adding this for the header
+                  } as any);
                 }
+
                 setSelectedShop(shop);
                 setViewMode('details');
+
+                // Trigger fetch immediately with the correct account ID
+                if (targetAccountId && shop.shop_id) {
+                  console.log('[Dashboard] Triggering fetch for:', shop.shop_name, 'Account:', targetAccountId);
+                  useShopStore.getState().fetchShopData(targetAccountId, shop.shop_id);
+                }
               }}
               onAddShop={handleConnectShop}
               onAddAgency={handleConnectAgency}
@@ -527,7 +562,7 @@ export function Dashboard() {
             (() => {
               switch (activeTab) {
                 case 'overview': return selectedAccount ? <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} onNavigate={setActiveTab} /> : null;
-                case 'orders': return <OrdersView />;
+                case 'orders': return selectedAccount ? <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
                 case 'products': return selectedAccount ? <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
                 case 'profit-loss': return <ProfitLossView shopId={selectedShop?.shop_id} />;
                 case 'profile': return <ProfileView />;

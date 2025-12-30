@@ -120,8 +120,10 @@ router.get('/stores', async (req, res) => {
                 name,
                 user_accounts!inner (
                     profiles!inner (
+                        id,
                         full_name,
-                        email
+                        email,
+                        role
                     )
                 ),
                 tiktok_shops (
@@ -146,6 +148,9 @@ router.get('/stores', async (req, res) => {
                 .select(`
                     id,
                     name,
+                    user_accounts (
+                        profiles (*)
+                    ),
                     tiktok_shops (
                         id,
                         shop_id,
@@ -189,13 +194,17 @@ router.get('/stores', async (req, res) => {
                         ordersCount,
                         productsCount,
                         revenue,
-                        net
+                        net,
+                        created_at: shop.created_at
                     };
                 });
 
                 return {
                     id: account.id,
                     account_name: account.name || 'Unknown Account',
+                    owner_id: account.user_accounts?.[0]?.profiles?.id,
+                    owner_role: account.user_accounts?.[0]?.profiles?.role || 'client',
+                    owner_full_name: account.user_accounts?.[0]?.profiles?.full_name || account.name,
                     original_name: account.name,
                     storesCount: shops.length,
                     totalOrders,
@@ -242,13 +251,17 @@ router.get('/stores', async (req, res) => {
                     ordersCount,
                     productsCount,
                     revenue,
-                    net
+                    net,
+                    created_at: shop.created_at
                 };
             });
 
             return {
                 id: account.id,
                 account_name: ownerName,
+                owner_id: owner?.id,
+                owner_role: owner?.role || 'client',
+                owner_full_name: owner?.full_name || ownerName,
                 original_name: account.name,
                 storesCount: shops.length,
                 totalOrders,

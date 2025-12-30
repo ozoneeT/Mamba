@@ -1,13 +1,20 @@
 import { useState } from 'react';
-import { ShoppingBag, Package, Clock, CheckCircle, XCircle, TruckIcon, AlertCircle } from 'lucide-react';
+import { ShoppingBag, Package, Clock, CheckCircle, XCircle, TruckIcon, AlertCircle, RefreshCw } from 'lucide-react';
 import { useShopStore } from '../../store/useShopStore';
+import { Account } from '../../lib/supabase';
+
+interface OrdersViewProps {
+    account: Account;
+    shopId?: string;
+}
 
 
 
-export function OrdersView() {
+export function OrdersView({ account, shopId }: OrdersViewProps) {
     const orders = useShopStore(state => state.orders);
     const isLoading = useShopStore(state => state.isLoading);
     const error = useShopStore(state => state.error);
+    const fetchShopData = useShopStore(state => state.fetchShopData);
     const [statusFilter, setStatusFilter] = useState('all');
 
     console.log('[OrdersView] Rendering with:', { ordersCount: orders.length, isLoading });
@@ -73,11 +80,20 @@ export function OrdersView() {
     return (
         <div className="space-y-6">
             {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-500" />
-                    <p className="text-red-400 text-sm">
-                        Partial data load: {error}. Some information might be outdated.
-                    </p>
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-500" />
+                        <p className="text-amber-200 text-sm">
+                            We're having trouble fetching some data. Some information might be outdated.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => fetchShopData(account.id, shopId, true)}
+                        className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
+                    >
+                        <RefreshCw className="w-3 h-3" />
+                        Refresh
+                    </button>
                 </div>
             )}
             <div className="flex items-center justify-between">

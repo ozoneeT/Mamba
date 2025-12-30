@@ -20,7 +20,8 @@ export const getShopWithToken = async (accountId: string, shopId?: string, force
     const { data: shops, error } = await query.limit(1).single();
 
     if (error || !shops) {
-        throw new Error('Shop not found or not connected');
+        console.error(`[Data API] Shop not found for account ${accountId} and shop ${shopId || 'any'}. Error:`, error?.message);
+        throw new Error(`Shop not found or not connected (Account: ${accountId}, Shop: ${shopId || 'any'})`);
     }
 
     // Check if token is expired (with 5 minute buffer) OR if forceRefresh is requested
