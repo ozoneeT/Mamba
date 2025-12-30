@@ -95,6 +95,25 @@ export function Dashboard() {
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
+  // 3. Fetch Admin Stores (if admin)
+  const {
+    data: adminAccounts = [],
+    isLoading: isLoadingAdminStores,
+  } = useQuery({
+    queryKey: ['admin-stores-grouped'],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch(`${API_BASE_URL}/api/admin/stores`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      return data.success ? data.data : [];
+    },
+    enabled: profile?.role === 'admin',
+    staleTime: 1000 * 60 * 5,
+  });
+
   const [hasSkippedWelcome, setHasSkippedWelcome] = useState(false);
 
   // Handle Shop Selection & Welcome Screen logic
@@ -474,7 +493,20 @@ export function Dashboard() {
           ) : viewMode === 'list' ? (
             <ShopList
               shops={shops}
-              onSelectShop={(shop) => {
+              adminAccounts={adminAccounts}
+              onSelectShop={(shop: any, accountContext?: any) => {
+                if (accountContext) {
+                  // If we have account context (admin mode), update selectedAccount
+                  // This allows the details views to fetch data for the correct account
+                  setSelectedAccount({
+                    id: accountContext.id,
+                    name: accountContext.original_name || accountContext.account_name,
+                    status: 'active',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    tiktok_handle: ''
+                  } as Account);
+                }
                 setSelectedShop(shop);
                 setViewMode('details');
               }}
@@ -482,7 +514,7 @@ export function Dashboard() {
               onAddAgency={handleConnectAgency}
               onSyncShops={handleSyncShops}
               onDeleteShop={handleDeleteShop}
-              isLoading={isLoadingShops}
+              isLoading={isLoadingShops || (profile?.role === 'admin' && isLoadingAdminStores)}
               isSyncing={isSyncing}
             />
           ) : (
