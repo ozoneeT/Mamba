@@ -84,6 +84,18 @@ export const useShopStore = create<ShopState>((set, get) => ({
     fetchShopData: async (accountId: string, shopId?: string, forceRefresh = false) => {
         const state = get();
 
+        // If switching shops, clear data immediately to avoid showing old data
+        if (shopId && state.lastFetchShopId !== shopId) {
+            console.log('[Store] Shop changed, clearing old data...');
+            set({
+                products: [],
+                orders: [],
+                finance: { statements: [], payments: [], withdrawals: [], unsettledOrders: [] },
+                error: null,
+                lastFetchShopId: shopId
+            });
+        }
+
         // If data exists for this specific shop and not forcing refresh, skip fetch
         const isSameShop = state.lastFetchShopId === shopId;
         if (!forceRefresh && isSameShop && state.products.length > 0 && state.orders.length > 0) {
@@ -98,20 +110,20 @@ export const useShopStore = create<ShopState>((set, get) => ({
 
             // Fetch Products
             const productsUrl = `${API_BASE_URL}/api/tiktok-shop/products/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const productsPromise = fetch(productsUrl).then(r => r.json());
+            const productsPromise = fetch(productsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
 
             // Fetch Orders
             const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const ordersPromise = fetch(ordersUrl).then(r => r.json());
+            const ordersPromise = fetch(ordersUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
 
             // Fetch Finance Data (Parallel)
             const financeBaseUrl = `${API_BASE_URL}/api/tiktok-shop/finance`;
             const queryParams = shopId ? `?shopId=${shopId}` : '';
 
-            const statementsPromise = fetch(`${financeBaseUrl}/statements/${accountId}${queryParams}`).then(r => r.json());
-            const paymentsPromise = fetch(`${financeBaseUrl}/payments/${accountId}${queryParams}`).then(r => r.json());
-            const withdrawalsPromise = fetch(`${financeBaseUrl}/withdrawals/${accountId}${queryParams}`).then(r => r.json());
-            const unsettledPromise = fetch(`${financeBaseUrl}/unsettled/${accountId}${queryParams}`).then(r => r.json());
+            const statementsPromise = fetch(`${financeBaseUrl}/statements/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
+            const paymentsPromise = fetch(`${financeBaseUrl}/payments/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
+            const withdrawalsPromise = fetch(`${financeBaseUrl}/withdrawals/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
+            const unsettledPromise = fetch(`${financeBaseUrl}/unsettled/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
 
             const [productsResult, ordersResult, statementsResult, paymentsResult, withdrawalsResult, unsettledResult] = await Promise.all([
                 productsPromise,
@@ -122,8 +134,11 @@ export const useShopStore = create<ShopState>((set, get) => ({
                 unsettledPromise
             ]);
 
+            // Check for errors but still process what we have
+            let fetchError = null;
             if (!productsResult.success || !ordersResult.success) {
-                throw new Error('Failed to fetch shop data');
+                fetchError = productsResult.error || ordersResult.error || 'Failed to fetch some shop data';
+                console.warn('[Store] Partial fetch failure:', fetchError);
             }
 
             // Transform products
@@ -161,23 +176,23 @@ export const useShopStore = create<ShopState>((set, get) => ({
             const unsettledOrders = unsettledResult.success ? (unsettledResult.data?.order_list || []) : [];
 
             set({
-                products,
-                orders,
+                products: products.length > 0 ? products : get().products,
+                orders: orders.length > 0 ? orders : get().orders,
                 finance: {
-                    statements,
-                    payments,
-                    withdrawals,
-                    unsettledOrders
+                    statements: statements.length > 0 ? statements : get().finance.statements,
+                    payments: payments.length > 0 ? payments : get().finance.payments,
+                    withdrawals: withdrawals.length > 0 ? withdrawals : get().finance.withdrawals,
+                    unsettledOrders: unsettledOrders.length > 0 ? unsettledOrders : get().finance.unsettledOrders
                 },
                 isLoading: false,
+                error: fetchError,
                 lastFetchTime: Date.now(),
                 lastFetchShopId: shopId || null
             });
 
-            console.log(`[Store] Fetched ${products.length} products, ${orders.length} orders`);
-            console.log(`[Store] Finance: ${statements.length} statements, ${payments.length} payments, ${withdrawals.length} withdrawals`);
+            console.log(`[Store] Processed ${products.length} products, ${orders.length} orders. Error:`, fetchError);
         } catch (error: any) {
-            console.error('[Store] Error fetching shop data:', error);
+            console.error('[Store] Fatal error fetching shop data:', error);
             set({ error: error.message, isLoading: false });
         }
     },

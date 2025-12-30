@@ -39,7 +39,7 @@ export function ProductsView({ account }: ProductsViewProps) {
         );
     }
 
-    if (error) {
+    if (error && products.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-64 text-center">
                 <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
@@ -67,6 +67,15 @@ export function ProductsView({ account }: ProductsViewProps) {
                     Refresh
                 </button>
             </div>
+
+            {error && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-500" />
+                    <p className="text-red-400 text-sm">
+                        Partial data load: {error}. Some information might be outdated.
+                    </p>
+                </div>
+            )}
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

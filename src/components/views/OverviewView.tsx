@@ -1,4 +1,4 @@
-import { TrendingUp, DollarSign, ShoppingBag, Package, Users, Star, RefreshCw } from 'lucide-react';
+import { TrendingUp, DollarSign, ShoppingBag, Package, Users, Star, RefreshCw, AlertCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { StatCard } from '../StatCard';
 import { Account } from '../../lib/supabase';
@@ -26,6 +26,7 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
   const products = useShopStore(state => state.products);
   const orders = useShopStore(state => state.orders);
   const isLoading = useShopStore(state => state.isLoading);
+  const error = useShopStore(state => state.error);
 
   const [metrics, setMetrics] = useState<ShopMetrics>({
     totalOrders: 0,
@@ -108,6 +109,14 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500" />
+          <p className="text-red-400 text-sm">
+            Partial data load: {error}. Some information might be outdated.
+          </p>
+        </div>
+      )}
       {/* Account Header */}
       <div className="bg-gradient-to-r from-pink-500/10 to-red-500/10 border border-pink-500/30 rounded-xl p-6">
         <div className="flex items-center justify-between">

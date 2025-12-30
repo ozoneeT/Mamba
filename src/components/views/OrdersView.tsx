@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShoppingBag, Package, Clock, CheckCircle, XCircle, TruckIcon } from 'lucide-react';
+import { ShoppingBag, Package, Clock, CheckCircle, XCircle, TruckIcon, AlertCircle } from 'lucide-react';
 import { useShopStore } from '../../store/useShopStore';
 
 
@@ -7,6 +7,7 @@ import { useShopStore } from '../../store/useShopStore';
 export function OrdersView() {
     const orders = useShopStore(state => state.orders);
     const isLoading = useShopStore(state => state.isLoading);
+    const error = useShopStore(state => state.error);
     const [statusFilter, setStatusFilter] = useState('all');
 
     console.log('[OrdersView] Rendering with:', { ordersCount: orders.length, isLoading });
@@ -71,6 +72,14 @@ export function OrdersView() {
 
     return (
         <div className="space-y-6">
+            {error && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-500" />
+                    <p className="text-red-400 text-sm">
+                        Partial data load: {error}. Some information might be outdated.
+                    </p>
+                </div>
+            )}
             <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-white">Orders</h2>
                 <div className="flex gap-2">

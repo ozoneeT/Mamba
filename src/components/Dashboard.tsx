@@ -118,25 +118,27 @@ export function Dashboard() {
 
   // Handle Shop Selection & Welcome Screen logic
   useEffect(() => {
-    if (isShopsFetched) {
-      if (shops.length > 0) {
+    if (isShopsFetched || (profile?.role === 'admin' && adminAccounts.length > 0)) {
+      const hasShops = shops.length > 0 || (profile?.role === 'admin' && adminAccounts.some((acc: any) => acc.stores.length > 0));
+
+      if (hasShops) {
         setShowWelcome(false);
         setHasSkippedWelcome(false); // Reset skip state when shops are found
         // Auto-select if only one shop and we haven't selected one yet (or just connected)
         // Or if we are in a state where we should be viewing details
-        if (shops.length === 1 && !selectedShop) {
+        if (shops.length === 1 && !selectedShop && !selectedAccount) {
           setSelectedShop(shops[0]);
           setViewMode('details');
         }
       } else {
-        // No shops found
+        // No shops found anywhere (for admin) or for current user (for client)
         setShowWelcome(true);
       }
-    } else if (!isLoadingAccounts && !isLoadingShops && !selectedAccount) {
-      // No account, show welcome
+    } else if (!isLoadingAccounts && !isLoadingShops && !selectedAccount && profile?.role !== 'admin') {
+      // No account, show welcome (only for non-admins)
       setShowWelcome(true);
     }
-  }, [shops, isShopsFetched, selectedAccount, isLoadingAccounts, isLoadingShops]);
+  }, [shops, isShopsFetched, selectedAccount, isLoadingAccounts, isLoadingShops, adminAccounts, profile?.role]);
 
   // Fetch Shop Data when a shop is selected
   useEffect(() => {
@@ -439,7 +441,10 @@ export function Dashboard() {
 
   // Full screen Welcome if no account or no shops (and not loading)
   // We check !isLoadingShops to avoid flashing welcome screen while fetching shops
-  const needsWelcome = !hasSkippedWelcome && ((!selectedAccount && !isLoadingAccounts) || (showWelcome && !isLoadingShops));
+  const isUserAdmin = profile?.role === 'admin';
+  const hasPlatformShops = isUserAdmin && adminAccounts.some((acc: any) => acc.stores.length > 0);
+
+  const needsWelcome = !hasSkippedWelcome && !hasPlatformShops && ((!selectedAccount && !isLoadingAccounts && !isUserAdmin) || (showWelcome && !isLoadingShops));
 
   if (needsWelcome) {
     return (
