@@ -235,8 +235,16 @@ router.get('/stores', async (req, res) => {
             const processedShops = shops.map((shop: any) => {
                 const ordersCount = shop.shop_orders?.[0]?.count || 0;
                 const productsCount = shop.shop_products?.[0]?.count || 0;
-                const revenue = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0) || 0;
-                const net = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0) || 0;
+
+                // Filter settlements for last 30 days
+                const now = Date.now();
+                const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+                const startSec = thirtyDaysAgo / 1000;
+
+                const recentSettlements = shop.shop_settlements?.filter((s: any) => s.settlement_time >= startSec) || [];
+
+                const revenue = recentSettlements.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0);
+                const net = recentSettlements.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0);
 
                 totalOrders += ordersCount;
                 totalProducts += productsCount;
