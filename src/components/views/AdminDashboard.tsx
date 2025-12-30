@@ -1,12 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Users, Store, TrendingUp, Activity } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function AdminDashboard() {
-    const { user } = useAuth();
+
 
     const { data: stats, isLoading } = useQuery({
         queryKey: ['admin-stats'],

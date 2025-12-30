@@ -220,6 +220,9 @@ router.get('/orders/:accountId', async (req: Request, res: Response) => {
             )
         );
 
+        // Background sync to persist data
+        getShopWithToken(accountId, shopId as string).then(shop => syncOrders(shop)).catch(err => console.error('Background syncOrders error:', err));
+
         res.json({
             success: true,
             data: orders,
@@ -318,6 +321,9 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
             };
         });
 
+        // Background sync to persist data
+        getShopWithToken(accountId, shopId as string).then(shop => syncProducts(shop)).catch(err => console.error('Background syncProducts error:', err));
+
         res.json({
             success: true,
             data: {
@@ -344,7 +350,7 @@ router.get('/settlements/:accountId', async (req: Request, res: Response) => {
         const { shopId, startTime, endTime } = req.query;
 
         const params: any = {
-            sort_field: 'settlement_time',
+            sort_field: 'statement_time',
             sort_order: 'DESC'
         };
 
@@ -361,6 +367,9 @@ router.get('/settlements/:accountId', async (req: Request, res: Response) => {
                 params
             )
         );
+
+        // Background sync to persist data
+        getShopWithToken(accountId, shopId as string).then(shop => syncSettlements(shop)).catch(err => console.error('Background syncSettlements error:', err));
 
         res.json({
             success: true,
@@ -393,6 +402,9 @@ router.get('/performance/:accountId', async (req: Request, res: Response) => {
                 cipher
             )
         );
+
+        // Background sync to persist data
+        getShopWithToken(accountId, shopId as string).then(shop => syncPerformance(shop)).catch(err => console.error('Background syncPerformance error:', err));
 
         res.json({
             success: true,
@@ -550,20 +562,17 @@ async function syncOrders(shop: any) {
             const { error } = await supabase
                 .from('shop_orders')
                 .upsert({
-                    shop_id: shop.shop_id,
-                    account_id: shop.account_id,
-                    order_id: order.order_id,
-                    order_status: order.order_status,
-                    order_amount: order.payment_info?.total_amount || 0,
+                    shop_id: shop.id, // Use UUID id
+                    order_id: order.id, // API returns 'id'
+                    order_status: order.status, // API returns 'status'
+                    total_amount: order.payment_info?.total_amount || 0,
                     currency: order.payment_info?.currency || 'USD',
-                    payment_method: order.payment_method_name,
-                    shipping_provider: order.shipping_provider,
-                    tracking_number: order.tracking_number,
-                    buyer_uid: order.buyer_uid,
-                    created_time: order.create_time,
-                    updated_time: order.update_time,
+                    create_time: new Date(Number(order.create_time) * 1000).toISOString(),
+                    update_time: new Date(Number(order.update_time) * 1000).toISOString(),
                     line_items: order.line_items,
-                    recipient_address: order.recipient_address,
+                    payment_info: order.payment_info,
+                    buyer_info: order.buyer_info,
+                    shipping_info: order.shipping_info,
                     updated_at: new Date().toISOString()
                 }, {
                     onConflict: 'order_id'
@@ -602,22 +611,18 @@ async function syncProducts(shop: any) {
             const { error } = await supabase
                 .from('shop_products')
                 .upsert({
-                    shop_id: shop.shop_id,
-                    account_id: shop.account_id,
+                    shop_id: shop.id, // Use UUID id
                     product_id: product.id,
-                    name: product.title, // 202502 uses 'title'
-                    sku: product.skus?.[0]?.seller_sku, // Use first SKU as main
-                    status: product.status,
-                    price: product.skus?.[0]?.price?.tax_exclusive_price, // 202502 uses 'tax_exclusive_price'
-                    currency: product.skus?.[0]?.price?.currency,
-                    stock_quantity: product.skus?.[0]?.inventory?.[0]?.quantity || 0, // 202502 uses 'inventory' and 'quantity'
-                    sales_count: product.sales_regions?.[0]?.sales_count || 0, // Simplified
-                    main_image_url: product.images?.[0]?.url_list?.[0], // Check if images structure changed too, but keeping for now
-                    created_time: product.create_time,
-                    updated_time: product.update_time,
+                    product_name: product.title,
+                    sku_list: product.skus,
+                    status: product.status === 'ACTIVATE' ? 'active' : 'inactive',
+                    price: product.skus?.[0]?.price?.tax_exclusive_price || 0,
+                    stock: product.skus?.[0]?.inventory?.[0]?.quantity || 0,
+                    sales_count: product.sales_regions?.[0]?.sales_count || 0,
+                    images: product.images,
                     updated_at: new Date().toISOString()
                 }, {
-                    onConflict: 'product_id'
+                    onConflict: 'shop_id,product_id'
                 });
 
             if (error) {
@@ -639,7 +644,7 @@ async function syncSettlements(shop: any) {
             start_time: thirtyDaysAgo,
             end_time: now,
             page_size: 20,
-            sort_field: 'settlement_time',
+            sort_field: 'statement_time',
             sort_order: 'DESC'
         };
 
@@ -658,17 +663,19 @@ async function syncSettlements(shop: any) {
             const { error } = await supabase
                 .from('shop_settlements')
                 .upsert({
-                    shop_id: shop.shop_id,
-                    account_id: shop.account_id,
+                    shop_id: shop.id, // Use UUID id
                     settlement_id: settlement.id,
-                    settlement_time: settlement.settlement_time,
+                    order_id: settlement.order_id,
+                    settlement_time: new Date(Number(settlement.settlement_time) * 1000).toISOString(),
                     currency: settlement.currency,
-                    settlement_amount: settlement.settlement_amount,
-                    revenue_amount: settlement.revenue_amount,
-                    fee_amount: settlement.fee_amount,
+                    total_amount: settlement.settlement_amount,
+                    platform_fee: settlement.fee_amount,
+                    shipping_fee: 0, // Not directly in this list response
+                    affiliate_commission: 0, // Not directly in this list response
+                    refund_amount: 0, // Not directly in this list response
                     adjustment_amount: settlement.adjustment_amount,
-                    status: settlement.status,
-                    created_at: new Date().toISOString()
+                    settlement_data: settlement,
+                    updated_at: new Date().toISOString()
                 }, {
                     onConflict: 'settlement_id'
                 });
@@ -679,6 +686,46 @@ async function syncSettlements(shop: any) {
         }
     } catch (error) {
         console.error(`Error in syncSettlements for ${shop.shop_name}:`, error);
+    }
+}
+
+async function syncPerformance(shop: any) {
+    console.log(`Syncing performance for shop ${shop.shop_name}...`);
+    try {
+        const performance = await tiktokShopApi.makeApiRequest(
+            '/seller/202309/performance',
+            shop.access_token,
+            shop.shop_cipher
+        );
+
+        if (!performance) return;
+
+        // The API might return multiple days or just today
+        // For now, we'll assume it's today's data or a list
+        const data = Array.isArray(performance) ? performance : [performance];
+
+        for (const record of data) {
+            const { error } = await supabase
+                .from('shop_performance')
+                .upsert({
+                    shop_id: shop.id,
+                    date: record.date || new Date().toISOString().split('T')[0],
+                    total_orders: record.total_orders || 0,
+                    total_revenue: record.total_revenue || 0,
+                    total_items_sold: record.total_items_sold || 0,
+                    avg_order_value: record.avg_order_value || 0,
+                    conversion_rate: record.conversion_rate || 0,
+                    updated_at: new Date().toISOString()
+                }, {
+                    onConflict: 'shop_id,date'
+                });
+
+            if (error) {
+                console.error(`Error syncing performance for ${shop.shop_name}:`, error);
+            }
+        }
+    } catch (error) {
+        console.error(`Error in syncPerformance for ${shop.shop_name}:`, error);
     }
 }
 
