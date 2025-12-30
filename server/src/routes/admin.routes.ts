@@ -17,6 +17,7 @@ router.use(adminMiddleware);
 // GET /api/admin/stats - Total users and stores
 router.get('/stats', async (req, res) => {
     try {
+        console.log('[Admin API] Fetching stats...');
         const { count: userCount, error: userError } = await supabase
             .from('profiles')
             .select('*', { count: 'exact', head: true });
@@ -24,6 +25,8 @@ router.get('/stats', async (req, res) => {
         const { count: storeCount, error: storeError } = await supabase
             .from('tiktok_shops')
             .select('*', { count: 'exact', head: true });
+
+        console.log('[Admin API] Stats result:', { userCount, storeCount, userError, storeError });
 
         if (userError || storeError) throw userError || storeError;
 
@@ -35,6 +38,7 @@ router.get('/stats', async (req, res) => {
             }
         });
     } catch (error: any) {
+        console.error('[Admin API] Stats error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -42,6 +46,7 @@ router.get('/stats', async (req, res) => {
 // GET /api/admin/users - List users with roles and connected stores
 router.get('/users', async (req, res) => {
     try {
+        console.log('[Admin API] Fetching users...');
         const { data: users, error: userError } = await supabase
             .from('profiles')
             .select(`
@@ -60,6 +65,8 @@ router.get('/users', async (req, res) => {
             `)
             .order('created_at', { ascending: false });
 
+        console.log('[Admin API] Users result count:', users?.length, 'Error:', userError);
+
         if (userError) throw userError;
 
         res.json({
@@ -67,6 +74,7 @@ router.get('/users', async (req, res) => {
             data: users
         });
     } catch (error: any) {
+        console.error('[Admin API] Users error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -102,6 +110,7 @@ router.patch('/users/:id/role', async (req, res) => {
 // GET /api/admin/stores - List stores with products, orders, and P&L data
 router.get('/stores', async (req, res) => {
     try {
+        console.log('[Admin API] Fetching stores...');
         const { data: stores, error: storeError } = await supabase
             .from('tiktok_shops')
             .select(`
@@ -116,6 +125,8 @@ router.get('/stores', async (req, res) => {
                     net_amount
                 )
             `);
+
+        console.log('[Admin API] Stores result count:', stores?.length, 'Error:', storeError);
 
         if (storeError) throw storeError;
 
@@ -145,6 +156,7 @@ router.get('/stores', async (req, res) => {
             data: processedStores
         });
     } catch (error: any) {
+        console.error('[Admin API] Stores error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

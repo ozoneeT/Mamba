@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { User, MoreVertical } from 'lucide-react';
 import { useState } from 'react';
+import { supabase } from '../../lib/supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
@@ -11,8 +12,8 @@ export function AdminUserManagement() {
     const { data: users, isLoading } = useQuery({
         queryKey: ['admin-users'],
         queryFn: async () => {
-            const session = await (window as any).supabase.auth.getSession();
-            const token = session.data.session?.access_token;
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session?.access_token;
 
             const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
                 headers: {
@@ -27,8 +28,8 @@ export function AdminUserManagement() {
 
     const updateRoleMutation = useMutation({
         mutationFn: async ({ userId, role }: { userId: string, role: string }) => {
-            const session = await (window as any).supabase.auth.getSession();
-            const token = session.data.session?.access_token;
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session?.access_token;
 
             const response = await fetch(`${API_BASE_URL}/api/admin/users/${userId}/role`, {
                 method: 'PATCH',

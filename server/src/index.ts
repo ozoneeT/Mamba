@@ -1,13 +1,14 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+
+// Load environment variables at the very top
+dotenv.config();
+
 import tiktokShopAuthRoutes from './routes/tiktok-shop-auth.routes.js';
 import tiktokShopDataRoutes from './routes/tiktok-shop-data.routes.js';
 import tiktokShopFinanceRoutes from './routes/tiktok-shop-finance.routes.js';
 import adminRoutes from './routes/admin.routes.js';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -74,8 +75,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
 });
 
-// Start server if not running in Vercel
-if (process.env.NODE_ENV !== 'production') {
+// Start server if not running in Vercel (Vercel handles the serverless function execution)
+if (!process.env.VERCEL) {
     app.listen(PORT, () => {
         console.log(`
 ╔════════════════════════════════════════════════════════════╗
