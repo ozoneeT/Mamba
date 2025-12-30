@@ -192,6 +192,71 @@ router.get('/shop/:accountId', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/tiktok-shop/orders/synced/:accountId
+ * Get all synced orders from the database
+ */
+router.get('/orders/synced/:accountId', async (req: Request, res: Response) => {
+    try {
+        const { accountId } = req.params;
+        const { shopId } = req.query;
+
+        // Join with tiktok_shops to filter by account_id
+        let shopsQuery = supabase
+            .from('tiktok_shops')
+            .select('id, shop_id')
+            .eq('account_id', accountId);
+
+        // If shopId is provided, it's the TikTok shop_id, not the internal Supabase ID
+        if (shopId) {
+            shopsQuery = shopsQuery.eq('shop_id', shopId);
+        }
+
+        const { data: shops } = await shopsQuery;
+
+        if (!shops || shops.length === 0) {
+            console.log(`[Orders Synced] No shops found for account ${accountId}${shopId ? ` and shop ${shopId}` : ''}`);
+            return res.json({ success: true, data: { orders: [] } });
+        }
+
+        // Get internal Supabase IDs to query shop_orders
+        const internalShopIds = shops.map(s => s.id);
+        console.log(`[Orders Synced] Fetching orders for internal shop IDs:`, internalShopIds);
+
+        const { data: orders, error } = await supabase
+            .from('shop_orders')
+            .select('*')
+            .in('shop_id', internalShopIds)
+            .order('create_time', { ascending: false });
+
+        if (error) throw error;
+
+        res.json({
+            success: true,
+            data: {
+                orders: orders.map(o => ({
+                    id: o.order_id,
+                    status: o.order_status,
+                    payment: {
+                        total_amount: o.total_amount.toString(),
+                        currency: o.currency,
+                        sub_total: o.total_amount.toString(), // Fallback
+                        tax: "0"
+                    },
+                    create_time: Math.floor(new Date(o.create_time).getTime() / 1000),
+                    update_time: o.update_time ? Math.floor(new Date(o.update_time).getTime() / 1000) : undefined,
+                    line_items: o.line_items || [],
+                    buyer_info: o.buyer_info,
+                    shipping_info: o.shipping_info,
+                    is_sample_order: (o as any).is_sample_order || false
+                }))
+            }
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * GET /api/tiktok-shop/orders/:accountId
  * Get orders for a shop
  */
@@ -517,55 +582,7 @@ router.get('/metrics/:accountId', async (req: Request, res: Response) => {
     }
 });
 
-/**
- * GET /api/tiktok-shop/orders/synced/:accountId
- * Get all synced orders from the database
- */
-router.get('/orders/synced/:accountId', async (req: Request, res: Response) => {
-    try {
-        const { accountId } = req.params;
-        const { shopId } = req.query;
 
-        let query = supabase
-            .from('shop_orders')
-            .select('*')
-            .order('create_time', { ascending: false });
-
-        // Join with tiktok_shops to filter by account_id
-        const { data: shops } = await supabase
-            .from('tiktok_shops')
-            .select('id')
-            .eq('account_id', accountId);
-
-        if (!shops || shops.length === 0) {
-            return res.json({ success: true, data: { orders: [] } });
-        }
-
-        const shopIds = shops.map(s => s.id);
-        query = query.in('shop_id', shopIds);
-
-        const { data: orders, error } = await query;
-        if (error) throw error;
-
-        res.json({
-            success: true,
-            data: {
-                orders: orders.map(o => ({
-                    id: o.order_id,
-                    status: o.order_status,
-                    payment: {
-                        total_amount: o.total_amount.toString(),
-                        currency: o.currency
-                    },
-                    create_time: Math.floor(new Date(o.create_time).getTime() / 1000),
-                    line_items: o.line_items
-                }))
-            }
-        });
-    } catch (error: any) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
 /**
  * GET /api/tiktok-shop/products/synced/:accountId
