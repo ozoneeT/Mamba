@@ -2,11 +2,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { User, MoreVertical } from 'lucide-react';
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function AdminUserManagement() {
     const queryClient = useQueryClient();
+    const { profile } = useAuth();
     const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
 
     const { data: users, isLoading } = useQuery({
@@ -23,7 +25,8 @@ export function AdminUserManagement() {
             const data = await response.json();
             if (data.success) return data.data;
             throw new Error(data.error);
-        }
+        },
+        enabled: profile?.role === 'admin'
     });
 
     const updateRoleMutation = useMutation({

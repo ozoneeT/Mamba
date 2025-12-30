@@ -48,6 +48,7 @@ interface ShopState {
     isLoading: boolean;
     error: string | null;
     lastFetchTime: number | null;
+    lastFetchShopId: string | null;
 
     // Actions
     fetchShopData: (accountId: string, shopId?: string, forceRefresh?: boolean) => Promise<void>;
@@ -68,6 +69,7 @@ export const useShopStore = create<ShopState>((set, get) => ({
     isLoading: false,
     error: null,
     lastFetchTime: null,
+    lastFetchShopId: null,
 
     setProducts: (products) => set({ products }),
     setOrders: (orders) => set({ orders }),
@@ -75,15 +77,17 @@ export const useShopStore = create<ShopState>((set, get) => ({
         products: [],
         orders: [],
         finance: { statements: [], payments: [], withdrawals: [], unsettledOrders: [] },
-        lastFetchTime: null
+        lastFetchTime: null,
+        lastFetchShopId: null
     }),
 
     fetchShopData: async (accountId: string, shopId?: string, forceRefresh = false) => {
         const state = get();
 
-        // If data exists and not forcing refresh, skip fetch
-        if (!forceRefresh && state.products.length > 0 && state.orders.length > 0 && state.finance.statements.length > 0) {
-            console.log('[Store] Using cached data, skipping fetch');
+        // If data exists for this specific shop and not forcing refresh, skip fetch
+        const isSameShop = state.lastFetchShopId === shopId;
+        if (!forceRefresh && isSameShop && state.products.length > 0 && state.orders.length > 0) {
+            console.log('[Store] Using cached data for shop:', shopId);
             return;
         }
 
@@ -166,7 +170,8 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     unsettledOrders
                 },
                 isLoading: false,
-                lastFetchTime: Date.now()
+                lastFetchTime: Date.now(),
+                lastFetchShopId: shopId || null
             });
 
             console.log(`[Store] Fetched ${products.length} products, ${orders.length} orders`);

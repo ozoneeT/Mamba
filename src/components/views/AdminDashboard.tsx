@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { Users, Store, TrendingUp, Activity } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function AdminDashboard() {
 
+
+    const { profile } = useAuth();
 
     const { data: stats, isLoading } = useQuery({
         queryKey: ['admin-stats'],
@@ -21,7 +24,8 @@ export function AdminDashboard() {
             const data = await response.json();
             if (data.success) return data.data;
             throw new Error(data.error);
-        }
+        },
+        enabled: profile?.role === 'admin'
     });
 
     if (isLoading) {

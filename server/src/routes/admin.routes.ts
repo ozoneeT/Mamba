@@ -107,56 +107,215 @@ router.patch('/users/:id/role', async (req, res) => {
     }
 });
 
-// GET /api/admin/stores - List stores with products, orders, and P&L data
+// GET /api/admin/stores - List stores grouped by account with owner name
 router.get('/stores', async (req, res) => {
     try {
-        console.log('[Admin API] Fetching stores...');
-        const { data: stores, error: storeError } = await supabase
-            .from('tiktok_shops')
+        console.log('[Admin API] Fetching stores grouped by account...');
+
+        // 1. Fetch all accounts with their owners and shops
+        const { data: accounts, error: accountError } = await supabase
+            .from('accounts')
             .select(`
-                *,
-                accounts (
-                    name
+                id,
+                name,
+                user_accounts!inner (
+                    profiles!inner (
+                        full_name,
+                        email
+                    )
                 ),
-                shop_orders (count),
-                shop_products (count),
-                shop_settlements (
-                    total_amount,
-                    net_amount
+                tiktok_shops (
+                    id,
+                    shop_id,
+                    shop_name,
+                    region,
+                    shop_orders (count),
+                    shop_products (count),
+                    shop_settlements (
+                        total_amount,
+                        net_amount
+                    )
                 )
             `);
 
-        console.log('[Admin API] Stores result count:', stores?.length, 'Error:', storeError);
+        if (accountError) {
+            console.error('[Admin API] Account fetch error:', accountError);
+            // Fallback to fetching accounts without owners if the join fails
+            const { data: fallbackAccounts, error: fallbackError } = await supabase
+                .from('accounts')
+                .select(`
+                    id,
+                    name,
+                    tiktok_shops (
+                        id,
+                        shop_id,
+                        shop_name,
+                        region,
+                        shop_orders (count),
+                        shop_products (count),
+                        shop_settlements (
+                            total_amount,
+                            net_amount
+                        )
+                    )
+                `);
 
-        if (storeError) throw storeError;
+            if (fallbackError) throw fallbackError;
 
-        // Process stores to include counts and P&L summary
-        const processedStores = stores.map((shop: any) => {
-            const ordersCount = shop.shop_orders?.[0]?.count || 0;
-            const productsCount = shop.shop_products?.[0]?.count || 0;
+            // Process fallback accounts
+            const processedFallback = fallbackAccounts.map((account: any) => {
+                const shops = account.tiktok_shops || [];
+                let totalOrders = 0;
+                let totalProducts = 0;
+                let totalRevenue = 0;
+                let totalNet = 0;
 
-            const totalRevenue = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0) || 0;
-            const totalNet = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0) || 0;
+                const processedShops = shops.map((shop: any) => {
+                    const ordersCount = shop.shop_orders?.[0]?.count || 0;
+                    const productsCount = shop.shop_products?.[0]?.count || 0;
+                    const revenue = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0) || 0;
+                    const net = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0) || 0;
+
+                    totalOrders += ordersCount;
+                    totalProducts += productsCount;
+                    totalRevenue += revenue;
+                    totalNet += net;
+
+                    return {
+                        id: shop.id,
+                        shop_id: shop.shop_id,
+                        shop_name: shop.shop_name,
+                        region: shop.region,
+                        ordersCount,
+                        productsCount,
+                        revenue,
+                        net
+                    };
+                });
+
+                return {
+                    id: account.id,
+                    account_name: account.name || 'Unknown Account',
+                    original_name: account.name,
+                    storesCount: shops.length,
+                    totalOrders,
+                    totalProducts,
+                    totalRevenue,
+                    totalNet,
+                    stores: processedShops
+                };
+            });
+
+            return res.json({ success: true, data: processedFallback });
+        }
+
+        // 2. Process and group data
+        const processedAccounts = accounts.map((account: any) => {
+            // In the join, user_accounts is an array, and each has a profiles object
+            const owner = account.user_accounts?.[0]?.profiles;
+            const ownerName = owner?.full_name || owner?.email || account.name || 'Unknown';
+
+            const shops = account.tiktok_shops || [];
+
+            // Aggregate metrics across all shops in this account
+            let totalOrders = 0;
+            let totalProducts = 0;
+            let totalRevenue = 0;
+            let totalNet = 0;
+
+            const processedShops = shops.map((shop: any) => {
+                const ordersCount = shop.shop_orders?.[0]?.count || 0;
+                const productsCount = shop.shop_products?.[0]?.count || 0;
+                const revenue = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0) || 0;
+                const net = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0) || 0;
+
+                totalOrders += ordersCount;
+                totalProducts += productsCount;
+                totalRevenue += revenue;
+                totalNet += net;
+
+                return {
+                    id: shop.id,
+                    shop_id: shop.shop_id,
+                    shop_name: shop.shop_name,
+                    region: shop.region,
+                    ordersCount,
+                    productsCount,
+                    revenue,
+                    net
+                };
+            });
 
             return {
-                id: shop.id,
-                shop_id: shop.shop_id,
-                shop_name: shop.shop_name,
-                account_name: shop.accounts?.name,
-                region: shop.region,
-                ordersCount,
-                productsCount,
+                id: account.id,
+                account_name: ownerName,
+                original_name: account.name,
+                storesCount: shops.length,
+                totalOrders,
+                totalProducts,
                 totalRevenue,
-                totalNet
+                totalNet,
+                stores: processedShops
             };
         });
 
         res.json({
             success: true,
-            data: processedStores
+            data: processedAccounts
         });
     } catch (error: any) {
         console.error('[Admin API] Stores error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET /api/admin/stores/:shopId/pl - Get detailed P&L for a specific shop
+router.get('/stores/:shopId/pl', async (req, res) => {
+    try {
+        const { shopId } = req.params;
+        const { startDate, endDate } = req.query;
+
+        console.log(`[Admin API] Fetching P&L for shop ${shopId}...`);
+
+        let query = supabase
+            .from('shop_settlements')
+            .select('*')
+            .eq('shop_id', shopId);
+
+        if (startDate && endDate) {
+            query = query
+                .gte('settlement_time', startDate)
+                .lte('settlement_time', endDate);
+        }
+
+        const { data: settlements, error: settlementError } = await query;
+
+        if (settlementError) throw settlementError;
+
+        // Calculate P&L metrics
+        const totalRevenue = settlements.reduce((sum, s) => sum + (Number(s.total_amount) || 0), 0);
+        const platformFees = settlements.reduce((sum, s) => sum + (Number(s.platform_fee) || 0), 0);
+        const shippingFees = settlements.reduce((sum, s) => sum + (Number(s.shipping_fee) || 0), 0);
+        const affiliateCommissions = settlements.reduce((sum, s) => sum + (Number(s.affiliate_commission) || 0), 0);
+        const refunds = settlements.reduce((sum, s) => sum + (Number(s.refund_amount) || 0), 0);
+        const adjustments = settlements.reduce((sum, s) => sum + (Number(s.adjustment_amount) || 0), 0);
+        const netProfit = settlements.reduce((sum, s) => sum + (Number(s.net_amount) || 0), 0);
+
+        res.json({
+            success: true,
+            data: {
+                totalRevenue,
+                platformFees,
+                shippingFees,
+                affiliateCommissions,
+                refunds,
+                adjustments,
+                netProfit,
+                settlementCount: settlements.length
+            }
+        });
+    } catch (error: any) {
+        console.error('[Admin API] P&L error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

@@ -72,12 +72,6 @@ export function Dashboard() {
     }
   }, [accounts, isAccountsFetched, selectedAccount]);
 
-  // Sync activeTab with profile role when it loads
-  useEffect(() => {
-    if (profile?.role === 'admin' && activeTab === 'overview') {
-      setActiveTab('admin-dashboard');
-    }
-  }, [profile, activeTab]);
 
 
   // 2. Fetch Shops
@@ -124,10 +118,61 @@ export function Dashboard() {
   // Fetch Shop Data when a shop is selected
   useEffect(() => {
     if (selectedAccount?.id && selectedShop?.shop_id) {
-      console.log('[Dashboard] Fetching shop data for:', selectedShop.shop_name);
-      useShopStore.getState().fetchShopData(selectedAccount.id, selectedShop.shop_id);
+      const shopStore = useShopStore.getState();
+      // Only fetch if it's a different shop or we don't have data yet
+      if (shopStore.lastFetchShopId !== selectedShop.shop_id || shopStore.products.length === 0) {
+        console.log('[Dashboard] Triggering fetch for:', selectedShop.shop_name);
+        shopStore.fetchShopData(selectedAccount.id, selectedShop.shop_id);
+      }
     }
   }, [selectedAccount?.id, selectedShop?.shop_id]);
+
+  // Prefetch Admin Data on Mount
+  useEffect(() => {
+    if (profile?.role === 'admin') {
+      console.log('[Dashboard] Admin detected, prefetching admin data...');
+
+      const prefetchAdminData = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+
+        const headers = { 'Authorization': `Bearer ${token}` };
+
+        // Prefetch Stats
+        queryClient.prefetchQuery({
+          queryKey: ['admin-stats'],
+          queryFn: async () => {
+            const res = await fetch(`${API_BASE_URL}/api/admin/stats`, { headers });
+            const data = await res.json();
+            return data.success ? data.data : null;
+          }
+        });
+
+        // Prefetch Users
+        queryClient.prefetchQuery({
+          queryKey: ['admin-users'],
+          queryFn: async () => {
+            const res = await fetch(`${API_BASE_URL}/api/admin/users`, { headers });
+            const data = await res.json();
+            return data.success ? data.data : null;
+          }
+        });
+
+        // Prefetch Stores
+        queryClient.prefetchQuery({
+          queryKey: ['admin-stores'],
+          queryFn: async () => {
+            const res = await fetch(`${API_BASE_URL}/api/admin/stores`, { headers });
+            const data = await res.json();
+            return data.success ? data.data : null;
+          }
+        });
+      };
+
+      prefetchAdminData();
+    }
+  }, [profile?.role, queryClient]);
 
 
   // --- Actions ---

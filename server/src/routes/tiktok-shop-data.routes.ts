@@ -557,29 +557,39 @@ async function syncOrders(shop: any) {
 
         if (orders.length === 0) return;
 
-        // Upsert orders to database
-        for (const order of orders) {
+        // Find all records for this shop_id to update them all
+        const { data: allShops } = await supabase
+            .from('tiktok_shops')
+            .select('id')
+            .eq('shop_id', shop.shop_id);
+
+        const shopIds = allShops?.map(s => s.id) || [shop.id];
+
+        // Batch upsert orders for all associated shop records
+        for (const sId of shopIds) {
+            const upsertData = orders.map((order: any) => ({
+                shop_id: sId,
+                order_id: order.id,
+                order_status: order.status,
+                total_amount: order.payment_info?.total_amount || 0,
+                currency: order.payment_info?.currency || 'USD',
+                create_time: new Date(Number(order.create_time) * 1000).toISOString(),
+                update_time: new Date(Number(order.update_time) * 1000).toISOString(),
+                line_items: order.line_items,
+                payment_info: order.payment_info,
+                buyer_info: order.buyer_info,
+                shipping_info: order.shipping_info,
+                updated_at: new Date().toISOString()
+            }));
+
             const { error } = await supabase
                 .from('shop_orders')
-                .upsert({
-                    shop_id: shop.id, // Use UUID id
-                    order_id: order.id, // API returns 'id'
-                    order_status: order.status, // API returns 'status'
-                    total_amount: order.payment_info?.total_amount || 0,
-                    currency: order.payment_info?.currency || 'USD',
-                    create_time: new Date(Number(order.create_time) * 1000).toISOString(),
-                    update_time: new Date(Number(order.update_time) * 1000).toISOString(),
-                    line_items: order.line_items,
-                    payment_info: order.payment_info,
-                    buyer_info: order.buyer_info,
-                    shipping_info: order.shipping_info,
-                    updated_at: new Date().toISOString()
-                }, {
-                    onConflict: 'order_id'
+                .upsert(upsertData, {
+                    onConflict: 'shop_id,order_id'
                 });
 
             if (error) {
-                console.error(`Error syncing order ${order.order_id}:`, error);
+                console.error(`Error batch syncing orders for shop record ${sId}:`, error);
             }
         }
     } catch (error) {
@@ -607,26 +617,37 @@ async function syncProducts(shop: any) {
 
         if (products.length === 0) return;
 
-        for (const product of products) {
+        // Find all records for this shop_id to update them all
+        const { data: allShops } = await supabase
+            .from('tiktok_shops')
+            .select('id')
+            .eq('shop_id', shop.shop_id);
+
+        const shopIds = allShops?.map(s => s.id) || [shop.id];
+
+        // Batch upsert products for all associated shop records
+        for (const sId of shopIds) {
+            const upsertData = products.map((product: any) => ({
+                shop_id: sId,
+                product_id: product.id,
+                product_name: product.title,
+                sku_list: product.skus,
+                status: product.status === 'ACTIVATE' ? 'active' : 'inactive',
+                price: product.skus?.[0]?.price?.tax_exclusive_price || 0,
+                stock: product.skus?.[0]?.inventory?.[0]?.quantity || 0,
+                sales_count: product.sales_regions?.[0]?.sales_count || 0,
+                images: product.images,
+                updated_at: new Date().toISOString()
+            }));
+
             const { error } = await supabase
                 .from('shop_products')
-                .upsert({
-                    shop_id: shop.id, // Use UUID id
-                    product_id: product.id,
-                    product_name: product.title,
-                    sku_list: product.skus,
-                    status: product.status === 'ACTIVATE' ? 'active' : 'inactive',
-                    price: product.skus?.[0]?.price?.tax_exclusive_price || 0,
-                    stock: product.skus?.[0]?.inventory?.[0]?.quantity || 0,
-                    sales_count: product.sales_regions?.[0]?.sales_count || 0,
-                    images: product.images,
-                    updated_at: new Date().toISOString()
-                }, {
+                .upsert(upsertData, {
                     onConflict: 'shop_id,product_id'
                 });
 
             if (error) {
-                console.error(`Error syncing product ${product.id}:`, error);
+                console.error(`Error batch syncing products for shop record ${sId}:`, error);
             }
         }
     } catch (error) {
@@ -659,29 +680,35 @@ async function syncSettlements(shop: any) {
 
         if (settlements.length === 0) return;
 
-        for (const settlement of settlements) {
+        // Find all records for this shop_id to update them all
+        const { data: allShops } = await supabase
+            .from('tiktok_shops')
+            .select('id')
+            .eq('shop_id', shop.shop_id);
+
+        const shopIds = allShops?.map(s => s.id) || [shop.id];
+
+        // Batch upsert settlements for all associated shop records
+        for (const sId of shopIds) {
+            const upsertData = settlements.map((settlement: any) => ({
+                shop_id: sId,
+                settlement_id: settlement.id,
+                order_id: settlement.order_id,
+                settlement_time: new Date(Number(settlement.statement_time) * 1000).toISOString(),
+                total_amount: settlement.amount?.amount || 0,
+                currency: settlement.amount?.currency || 'USD',
+                settlement_data: settlement,
+                updated_at: new Date().toISOString()
+            }));
+
             const { error } = await supabase
                 .from('shop_settlements')
-                .upsert({
-                    shop_id: shop.id, // Use UUID id
-                    settlement_id: settlement.id,
-                    order_id: settlement.order_id,
-                    settlement_time: new Date(Number(settlement.settlement_time) * 1000).toISOString(),
-                    currency: settlement.currency,
-                    total_amount: settlement.settlement_amount,
-                    platform_fee: settlement.fee_amount,
-                    shipping_fee: 0, // Not directly in this list response
-                    affiliate_commission: 0, // Not directly in this list response
-                    refund_amount: 0, // Not directly in this list response
-                    adjustment_amount: settlement.adjustment_amount,
-                    settlement_data: settlement,
-                    updated_at: new Date().toISOString()
-                }, {
-                    onConflict: 'settlement_id'
+                .upsert(upsertData, {
+                    onConflict: 'shop_id,settlement_id'
                 });
 
             if (error) {
-                console.error(`Error syncing settlement ${settlement.id}:`, error);
+                console.error(`Error batch syncing settlements for shop record ${sId}:`, error);
             }
         }
     } catch (error) {
