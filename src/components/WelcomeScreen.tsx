@@ -13,6 +13,9 @@ export default function WelcomeScreen({ onConnect, onConnectAgency, isConnecting
     const [localConnecting, setLocalConnecting] = useState(false);
     const [localAgencyConnecting, setLocalAgencyConnecting] = useState(false);
 
+    // Failsafe: Never show welcome screen to admins
+    if (profile?.role === 'admin') return null;
+
     const handleConnect = async () => {
         if (onConnect) {
             setLocalConnecting(true);

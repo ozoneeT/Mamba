@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import tiktokShopAuthRoutes from './routes/tiktok-shop-auth.routes.js';
 import tiktokShopDataRoutes from './routes/tiktok-shop-data.routes.js';
 import tiktokShopFinanceRoutes from './routes/tiktok-shop-finance.routes.js';
+import adminRoutes from './routes/admin.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -54,6 +55,7 @@ app.get('/health', (req, res) => {
 app.use('/api/tiktok-shop/auth', tiktokShopAuthRoutes);
 app.use('/api/tiktok-shop', tiktokShopDataRoutes);
 app.use('/api/tiktok-shop/finance', tiktokShopFinanceRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {

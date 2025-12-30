@@ -4,6 +4,9 @@ import { OverviewView } from './views/OverviewView';
 import { ProfitLossView } from './views/ProfitLossView';
 import { OrdersView } from './views/OrdersView';
 import { ProductsView } from './views/ProductsView';
+import { AdminDashboard } from './views/AdminDashboard';
+import { AdminUserManagement } from './views/AdminUserManagement';
+import { AdminStoreManagement } from './views/AdminStoreManagement';
 import WelcomeScreen from './WelcomeScreen';
 import { ShopList } from './ShopList';
 import { Account, supabase } from '../lib/supabase';
@@ -15,9 +18,9 @@ import { useShopStore } from '../store/useShopStore';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function Dashboard() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(profile?.role === 'admin' ? 'admin-dashboard' : 'overview');
   // We still keep selectedAccount state to allow switching if we ever re-enable it, 
   // but we'll default it to the first account from the query.
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -68,6 +71,13 @@ export function Dashboard() {
       }
     }
   }, [accounts, isAccountsFetched, selectedAccount]);
+
+  // Sync activeTab with profile role when it loads
+  useEffect(() => {
+    if (profile?.role === 'admin' && activeTab === 'overview') {
+      setActiveTab('admin-dashboard');
+    }
+  }, [profile, activeTab]);
 
 
   // 2. Fetch Shops
@@ -361,7 +371,11 @@ export function Dashboard() {
 
   // Full screen Welcome if no account or no shops (and not loading)
   // We check !isLoadingShops to avoid flashing welcome screen while fetching shops
-  if ((!selectedAccount && !isLoadingAccounts) || (showWelcome && !isLoadingShops)) {
+  // CRITICAL: Bypassed for admins
+  const isUserAdmin = profile?.role === 'admin';
+  const needsWelcome = !isUserAdmin && ((!selectedAccount && !isLoadingAccounts) || (showWelcome && !isLoadingShops));
+
+  if (needsWelcome) {
     return (
       <WelcomeScreen
         onConnect={handleConnectShop}
@@ -429,6 +443,9 @@ export function Dashboard() {
                 case 'orders': return <OrdersView />;
                 case 'products': return <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} />;
                 case 'profit-loss': return <ProfitLossView shopId={selectedShop?.shop_id} />;
+                case 'admin-dashboard': return <AdminDashboard />;
+                case 'admin-users': return <AdminUserManagement />;
+                case 'admin-stores': return <AdminStoreManagement />;
                 default: return <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} />;
               }
             })()
