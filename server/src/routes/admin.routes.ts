@@ -147,9 +147,9 @@ router.get('/stores', async (req, res) => {
         const end = new Date();
         end.setHours(23, 59, 59, 999); // End of today
 
-        // Convert to Unix timestamp (seconds) to match DB/API format
-        const startSec = Math.floor(start.getTime() / 1000);
-        const endSec = Math.floor(end.getTime() / 1000);
+        // Use ISO strings for timestamp comparison (Supabase/Postgres timestamp type)
+        const startIso = start.toISOString();
+        const endIso = end.toISOString();
 
         // Get all shop IDs
         const allShops = accounts.flatMap((a: any) => a.tiktok_shops || []);
@@ -161,8 +161,8 @@ router.get('/stores', async (req, res) => {
                 .from('shop_orders')
                 .select('shop_id, total_amount, create_time')
                 .in('shop_id', shopIds)
-                .gte('create_time', startSec)
-                .lte('create_time', endSec);
+                .gte('create_time', startIso)
+                .lte('create_time', endIso);
 
             if (ordersError) console.error('Error fetching recent orders:', ordersError);
 
@@ -171,8 +171,8 @@ router.get('/stores', async (req, res) => {
                 .from('shop_settlements')
                 .select('shop_id, net_amount, total_amount, settlement_time')
                 .in('shop_id', shopIds)
-                .gte('settlement_time', startSec) // Settlement time might also be unix seconds
-                .lte('settlement_time', endSec);
+                .gte('settlement_time', startIso)
+                .lte('settlement_time', endIso);
 
             if (settlementsError) console.error('Error fetching recent settlements:', settlementsError);
 

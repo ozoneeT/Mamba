@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
-interface Product {
+export interface Product {
     product_id: string;
     name: string;
     status: string;
@@ -26,6 +26,33 @@ export interface Order {
         quantity: number;
         sale_price: string;
     }[];
+    buyer_info?: {
+        buyer_email?: string;
+        buyer_nickname?: string;
+        buyer_avatar?: string;
+        buyer_message?: string;
+    };
+    shipping_info?: {
+        name?: string;
+        phone_number?: string;
+        address_line1?: string;
+        address_line2?: string;
+        city?: string;
+        state?: string;
+        postal_code?: string;
+        country?: string;
+        tracking_number?: string;
+        shipping_provider?: string;
+        delivery_option_name?: string;
+        full_address?: string;
+    };
+    payment_info?: {
+        currency?: string;
+        sub_total?: string;
+        shipping_fee?: string;
+        tax?: string;
+        total_amount?: string;
+    };
 }
 
 export interface Statement {
@@ -50,6 +77,7 @@ interface ShopMetrics {
     conversionRate: number;
     shopRating: number;
     unsettledRevenue?: number;
+    netProfit?: number;
 }
 
 interface ShopState {
@@ -71,6 +99,7 @@ interface ShopState {
     fetchShopData: (accountId: string, shopId?: string, forceRefresh?: boolean) => Promise<void>;
     setProducts: (products: Product[]) => void;
     setOrders: (orders: Order[]) => void;
+    setMetrics: (metrics: Partial<ShopMetrics>) => void;
     clearData: () => void;
 }
 
@@ -99,6 +128,9 @@ export const useShopStore = create<ShopState>((set, get) => ({
 
     setProducts: (products) => set({ products }),
     setOrders: (orders) => set({ orders }),
+    setMetrics: (newMetrics) => set((state) => ({
+        metrics: { ...state.metrics, ...newMetrics }
+    })),
     clearData: () => set({
         products: [],
         orders: [],
@@ -150,45 +182,29 @@ export const useShopStore = create<ShopState>((set, get) => ({
         set({ isLoading: true, error: null });
 
         try {
-            console.log('[Store] Fetching shop data from API...');
+            console.log('[Store] Fetching shop data (Optimized)...');
 
-            // Fetch Products (Synced from DB)
-            const productsUrl = `${API_BASE_URL}/api/tiktok-shop/products/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const productsPromise = fetch(productsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
+            // 1. Call Overview API (Handles Sync if forceRefresh=true)
+            const overviewUrl = `${API_BASE_URL}/api/tiktok-shop/overview/${accountId}${shopId ? `?shopId=${shopId}` : '?'}&refresh=${forceRefresh}`;
+            const overviewPromise = fetch(overviewUrl).then(r => r.json());
 
-            // Fetch Orders (Synced from DB)
-            const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const ordersPromise = fetch(ordersUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
+            // Wait for overview/sync to complete before fetching lists, so lists are fresh
+            const overviewResult = await overviewPromise;
 
-            // Fetch Metrics (Database-backed)
-            const metricsUrl = `${API_BASE_URL}/api/tiktok-shop/metrics/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-            const metricsPromise = fetch(metricsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
-
-            // Fetch Finance Data (Parallel)
-            const financeBaseUrl = `${API_BASE_URL}/api/tiktok-shop/finance`;
-            const queryParams = shopId ? `?shopId=${shopId}` : '';
-
-            const statementsPromise = fetch(`${financeBaseUrl}/statements/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
-            const paymentsPromise = fetch(`${financeBaseUrl}/payments/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
-            const withdrawalsPromise = fetch(`${financeBaseUrl}/withdrawals/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
-            const unsettledPromise = fetch(`${financeBaseUrl}/unsettled/${accountId}${queryParams}`).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
-
-            const [productsResult, ordersResult, metricsResult, statementsResult, paymentsResult, withdrawalsResult, unsettledResult] = await Promise.all([
-                productsPromise,
-                ordersPromise,
-                metricsPromise,
-                statementsPromise,
-                paymentsPromise,
-                withdrawalsPromise,
-                unsettledPromise
-            ]);
-
-            // Check for errors but still process what we have
-            let fetchError = null;
-            if (!productsResult.success || !ordersResult.success) {
-                fetchError = productsResult.error || ordersResult.error || 'Failed to fetch some shop data';
-                console.warn('[Store] Partial fetch failure:', fetchError);
+            if (!overviewResult.success) {
+                throw new Error(overviewResult.error || 'Failed to fetch overview data');
             }
+
+            // 2. Fetch Lists (Synced from DB) - Parallel
+            const productsUrl = `${API_BASE_URL}/api/tiktok-shop/products/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
+            const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
+            const settlementsUrl = `${API_BASE_URL}/api/tiktok-shop/settlements/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
+
+            const [productsResult, ordersResult, settlementsResult] = await Promise.all([
+                fetch(productsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message })),
+                fetch(ordersUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message })),
+                fetch(settlementsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }))
+            ]);
 
             // Transform products
             const products: Product[] = (productsResult.data?.products || []).map((p: any) => ({
@@ -199,15 +215,15 @@ export const useShopStore = create<ShopState>((set, get) => ({
                 currency: p.currency,
                 stock_quantity: p.stock,
                 sales_count: p.sales_count || 0,
-                main_image_url: p.images?.[0] || '',
+                main_image_url: p.images?.[0]?.url_list?.[0] || p.images?.[0] || '', // Handle different image structures
             }));
 
             // Transform orders
-            const orders: Order[] = (ordersResult.data?.orders || ordersResult.data?.order_list || []).map((o: any) => ({
+            const orders: Order[] = (ordersResult.data?.orders || []).map((o: any) => ({
                 order_id: o.id,
                 order_status: o.status,
-                order_amount: parseFloat(o.payment_info?.total_amount || o.payment?.total_amount || '0'),
-                currency: o.payment_info?.currency || o.payment?.currency || 'USD',
+                order_amount: parseFloat(o.payment?.total_amount || '0'),
+                currency: o.payment?.currency || 'USD',
                 created_time: o.create_time,
                 line_items: (o.line_items || []).map((item: any) => ({
                     id: item.id,
@@ -215,42 +231,40 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     sku_image: item.sku_image,
                     quantity: 1,
                     sale_price: item.sale_price
-                }))
+                })),
+                // Store extra info if needed
+                buyer_info: o.buyer_info,
+                shipping_info: o.shipping_info
             }));
 
             // Transform finance data
-            const statements = statementsResult.success ? (statementsResult.data?.statements || statementsResult.data?.statement_list || []) : [];
-            const payments = paymentsResult.success ? (paymentsResult.data?.payments || paymentsResult.data?.payment_list || []) : [];
-            const withdrawals = withdrawalsResult.success ? (withdrawalsResult.data?.withdrawals || withdrawalsResult.data?.withdrawal_list || []) : [];
-            const unsettledOrders = unsettledResult.success ? (unsettledResult.data?.transactions || unsettledResult.data?.order_list || []) : [];
+            const statements = settlementsResult.success ? (settlementsResult.data || []) : [];
 
-            // Calculate Unsettled Revenue from the fetched unsettled orders
-            const unsettledRevenue = unsettledOrders.reduce((sum: number, t: any) => sum + parseFloat(t.est_revenue_amount || '0'), 0);
-
-            // Transform metrics
-            const metrics: ShopMetrics = metricsResult.success ? {
-                ...metricsResult.data,
-                unsettledRevenue,
-                totalRevenue: (metricsResult.data.totalRevenue || 0) + unsettledRevenue
-            } : get().metrics;
+            // Update Metrics from Overview Result
+            const metrics: ShopMetrics = {
+                ...overviewResult.data.metrics,
+                // Ensure defaults
+                conversionRate: overviewResult.data.metrics.conversionRate || 0,
+                shopRating: overviewResult.data.metrics.shopRating || 0
+            };
 
             set({
                 products: products.length > 0 ? products : get().products,
                 orders: orders.length > 0 ? orders : get().orders,
                 metrics: metrics,
                 finance: {
-                    statements: statements.length > 0 ? statements : get().finance.statements,
-                    payments: payments.length > 0 ? payments : get().finance.payments,
-                    withdrawals: withdrawals.length > 0 ? withdrawals : get().finance.withdrawals,
-                    unsettledOrders: unsettledOrders.length > 0 ? unsettledOrders : get().finance.unsettledOrders
+                    statements: statements,
+                    payments: [], // TODO: Add synced payments if needed
+                    withdrawals: [], // TODO: Add synced withdrawals if needed
+                    unsettledOrders: []
                 },
                 isLoading: false,
-                error: fetchError,
+                error: null,
                 lastFetchTime: Date.now(),
                 lastFetchShopId: shopId || null
             });
 
-            console.log(`[Store] Processed ${products.length} products, ${orders.length} orders. Error:`, fetchError);
+            console.log(`[Store] Processed ${products.length} products, ${orders.length} orders.`);
         } catch (error: any) {
             console.error('[Store] Fatal error fetching shop data:', error);
             set({ error: error.message, isLoading: false });

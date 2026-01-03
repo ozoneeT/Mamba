@@ -67,7 +67,9 @@ export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
       // Calculate Unsettled Revenue (Estimated)
       const unsettledRevenue = finance.unsettledOrders.reduce((sum, t) => sum + parseFloat(t.est_revenue_amount || '0'), 0);
 
-      const totalRevenue = salesRevenue + unsettledRevenue;
+      // Total Revenue should be Sales Revenue (GMV)
+      // Unsettled revenue is already included in Sales Revenue (as orders) but not yet in Payout
+      const totalRevenue = salesRevenue;
 
       // Estimates (since we don't have this data from API yet)
       const adSpend = 0; // Would need Ads API
@@ -112,9 +114,7 @@ export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
   }
 
   const formatCurrency = (num: number): string => {
-    if (num >= 1000000) return `$${(num / 1000000).toFixed(2)}M`;
-    if (num >= 1000) return `$${(num / 1000).toFixed(2)}K`;
-    return `$${num.toFixed(2)}`;
+    return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const formatPercent = (num: number): string => {

@@ -20,8 +20,18 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
   const error = useShopStore(state => state.error);
   const fetchShopData = useShopStore(state => state.fetchShopData);
 
+  const orders = useShopStore(state => state.orders);
+  const finance = useShopStore(state => state.finance);
+
   const [syncing, setSyncing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Calculated metrics to match ProfitLossView
+  const [calculatedMetrics, setCalculatedMetrics] = useState({
+    totalRevenue: 0,
+    netProfit: 0,
+    grossProfit: 0
+  });
 
   // Update lastUpdated when metrics change
   useEffect(() => {
@@ -29,6 +39,61 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
       setLastUpdated(new Date());
     }
   }, [metrics]);
+
+  // Calculate metrics using P&L logic
+  useEffect(() => {
+    const calculateMetrics = () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 30);
+
+      // Set to midnight (Start of day)
+      start.setHours(0, 0, 0, 0);
+      // Set to end of day
+      end.setHours(23, 59, 59, 999);
+
+      const startTime = start.getTime() / 1000;
+      const endTime = end.getTime() / 1000;
+
+      // Filter for last 30 days
+      const filteredOrders = orders.filter(o => o.created_time >= startTime && o.created_time <= endTime);
+      const filteredStatements = finance.statements.filter(s => s.statement_time >= startTime && s.statement_time <= endTime);
+
+      // Calculate Metrics (Same logic as ProfitLossView)
+      const salesRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
+      const netPayout = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount), 0);
+
+      // Unsettled revenue from store
+      const unsettledRevenue = finance.unsettledOrders.reduce((sum, t) => sum + parseFloat(t.est_revenue_amount || '0'), 0);
+
+      const totalRevenue = salesRevenue;
+
+      // Estimates
+      const productCosts = totalRevenue * 0.3; // Estimated 30% COGS
+      const operationalCosts = totalRevenue * 0.1; // Estimated 10% Ops
+
+      const grossProfit = totalRevenue - productCosts;
+      const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
+
+      // Calculate Completed Orders
+      const completedOrdersCount = orders.filter(o => o.order_status === 'COMPLETED').length;
+
+      setCalculatedMetrics({
+        totalRevenue,
+        netProfit,
+        grossProfit
+      });
+
+      // We can also store this in a local state or just pass it down if we want to avoid re-renders, 
+      // but since we are inside the effect that runs on orders change, we can update a state variable.
+      // Actually, let's just calculate it in the render or use a separate state.
+      setCompletedOrders(completedOrdersCount);
+    };
+
+    calculateMetrics();
+  }, [orders, finance.statements, finance.unsettledOrders]);
+
+  const [completedOrders, setCompletedOrders] = useState(0);
 
   // Removed local fetchShopMetrics as we now rely on the global store
   // The store is populated by App.tsx on mount
@@ -46,9 +111,12 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
 
       const result = await response.json();
       if (result.success) {
-        // Refresh metrics after sync by forcing a store refresh
+        // Refresh metrics after sync
+        // We invalidate the cache timestamp to force a fetch from DB, 
+        // but pass false to fetchShopData to avoid triggering another remote sync
+        useShopStore.setState({ lastFetchTime: null });
         const fetchShopData = useShopStore.getState().fetchShopData;
-        await fetchShopData(account.id, shopId, true);
+        await fetchShopData(account.id, shopId, false);
       } else {
         console.error('Sync failed:', result.error);
         alert('Failed to sync data: ' + result.error);
@@ -157,20 +225,20 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatCard
             title="Total Revenue"
-            value={formatCurrency(metrics.totalRevenue)}
+            value={formatCurrency(calculatedMetrics.totalRevenue)}
             change={0}
             icon={DollarSign}
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
-            subtitle="Includes unsettled revenue"
+            subtitle="Last 30 days (Sales)"
           />
           <StatCard
             title="Total Orders"
-            value={formatNumber(metrics.totalOrders)}
-            subValue={formatCurrency(metrics.totalRevenue) + " GMV"}
+            value={metrics.totalOrders.toLocaleString()}
+            subValue={formatCurrency(calculatedMetrics.totalRevenue) + " Total Value"}
             change={0} // Placeholder, ideally calculated
             icon={ShoppingBag}
             iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
-            subtitle="Completed orders"
+            subtitle={`${completedOrders} Completed orders`}
             onClick={() => onNavigate?.('orders')}
           />
           <StatCard
@@ -189,6 +257,14 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             icon={TrendingUp}
             iconColor="bg-gradient-to-r from-orange-500 to-red-500"
             subtitle="Per transaction"
+          />
+          <StatCard
+            title="Net Profit"
+            value={formatCurrency(calculatedMetrics.netProfit)}
+            change={0} // Placeholder
+            icon={TrendingUp}
+            iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
+            subtitle="Calculated from P&L"
           />
         </div>
       </div>
