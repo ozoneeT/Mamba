@@ -86,11 +86,23 @@ async function executeWithRefresh<T>(
 router.get('/shops/:accountId', async (req: Request, res: Response) => {
     try {
         const { accountId } = req.params;
-
         const { refresh } = req.query;
 
-        // If refresh is requested, sync with TikTok first
-        if (refresh === 'true') {
+        // Check user role first
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', accountId)
+            .single();
+
+        const isAdmin = profile?.role === 'admin';
+
+        // If refresh is requested, sync with TikTok first (ONLY if not admin, or handle admin refresh differently)
+        // For now, let's keep refresh logic tied to the specific account unless it's a global admin refresh which is complex.
+        // The user requirement says "when i loggin get the shopList from supabase... Do not call any api from tiktok at this point"
+        // So we only refresh if explicitly asked.
+
+        if (refresh === 'true' && !isAdmin) {
             // Get any existing shop to get the access token
             const { data: existingShop } = await supabase
                 .from('tiktok_shops')
@@ -141,10 +153,16 @@ router.get('/shops/:accountId', async (req: Request, res: Response) => {
             }
         }
 
-        const { data: shops, error } = await supabase
+        // Fetch shops based on role
+        let query = supabase
             .from('tiktok_shops')
-            .select('shop_id, shop_name, region, seller_type, created_at')
-            .eq('account_id', accountId);
+            .select('shop_id, shop_name, region, seller_type, created_at, account_id');
+
+        if (!isAdmin) {
+            query = query.eq('account_id', accountId);
+        }
+
+        const { data: shops, error } = await query;
 
         if (error) {
             throw error;
@@ -407,42 +425,50 @@ router.get('/products/:accountId', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/tiktok-shop/settlements/:accountId
- * Get settlement data for financial reporting
+ * GET /api/tiktok-shop/settlements/synced/:accountId
+ * Get synced settlement data from database
  */
-router.get('/settlements/:accountId', async (req: Request, res: Response) => {
+router.get('/settlements/synced/:accountId', async (req: Request, res: Response) => {
     try {
         const { accountId } = req.params;
-        const { shopId, startTime, endTime } = req.query;
+        const { shopId } = req.query;
 
-        const params: any = {
-            sort_field: 'statement_time',
-            sort_order: 'DESC'
-        };
+        // Get shop IDs
+        let shopsQuery = supabase
+            .from('tiktok_shops')
+            .select('id')
+            .eq('account_id', accountId);
 
-        if (startTime) params.start_time = parseInt(startTime as string);
-        if (endTime) params.end_time = parseInt(endTime as string);
+        if (shopId) {
+            shopsQuery = shopsQuery.eq('shop_id', shopId);
+        }
 
-        const settlements = await executeWithRefresh(
-            accountId,
-            shopId as string,
-            (token, cipher) => tiktokShopApi.makeApiRequest(
-                '/finance/202309/statements',
-                token,
-                cipher,
-                params
-            )
-        );
+        const { data: shops } = await shopsQuery;
 
-        // Background sync to persist data
-        getShopWithToken(accountId, shopId as string).then(shop => syncSettlements(shop)).catch(err => console.error('Background syncSettlements error:', err));
+        if (!shops || shops.length === 0) {
+            return res.json({ success: true, data: [] });
+        }
+
+        const shopIds = shops.map(s => s.id);
+
+        const { data: settlements, error } = await supabase
+            .from('shop_settlements')
+            .select('*')
+            .in('shop_id', shopIds)
+            .order('settlement_time', { ascending: false });
+
+        if (error) throw error;
 
         res.json({
             success: true,
-            data: settlements,
+            data: settlements.map(s => ({
+                ...s.settlement_data,
+                id: s.settlement_id,
+                shop_id: s.shop_id // Internal ID, might need mapping back if frontend needs external shop_id
+            })),
         });
     } catch (error: any) {
-        console.error('Error fetching settlements:', error);
+        console.error('Error fetching synced settlements:', error);
         res.status(500).json({
             success: false,
             error: error.message,
@@ -485,14 +511,32 @@ router.get('/performance/:accountId', async (req: Request, res: Response) => {
     }
 });
 
-router.get('/metrics/:accountId', async (req: Request, res: Response) => {
+/**
+ * GET /api/tiktok-shop/overview/:accountId
+ * Get consolidated overview data (Metrics, Orders, Products, Finance)
+ * Optimized to reduce API calls.
+ */
+router.get('/overview/:accountId', async (req: Request, res: Response) => {
     try {
         const { accountId } = req.params;
-        const { shopId } = req.query;
+        const { shopId, refresh } = req.query;
 
-        console.log(`[Data API] Fetching metrics for account ${accountId}, shop ${shopId || 'all'}...`);
+        console.log(`[Overview API] Fetching overview for account ${accountId}, shop ${shopId || 'all'}, refresh=${refresh}...`);
 
-        // 1. Get the shop(s)
+        // 1. If refresh=true, trigger sync first
+        if (refresh === 'true') {
+            const shop = await getShopWithToken(accountId, shopId as string, true); // Force token refresh if needed
+
+            // Run syncs in parallel
+            await Promise.all([
+                syncOrders(shop),
+                syncProducts(shop),
+                syncSettlements(shop),
+                syncPerformance(shop)
+            ]);
+        }
+
+        // 2. Fetch Aggregated Data from Supabase
         let shopQuery = supabase
             .from('tiktok_shops')
             .select(`
@@ -504,7 +548,8 @@ router.get('/metrics/:accountId', async (req: Request, res: Response) => {
                 shop_products (count),
                 shop_settlements (
                     total_amount,
-                    net_amount
+                    net_amount,
+                    settlement_time
                 )
             `)
             .eq('account_id', accountId);
@@ -516,68 +561,55 @@ router.get('/metrics/:accountId', async (req: Request, res: Response) => {
         const { data: shops, error: shopError } = await shopQuery;
 
         if (shopError) throw shopError;
-        if (!shops || shops.length === 0) {
-            return res.json({
-                success: true,
-                data: {
-                    totalOrders: 0,
-                    totalProducts: 0,
-                    totalRevenue: 0,
-                    totalNet: 0,
-                    avgOrderValue: 0,
-                    unsettledRevenue: 0
-                }
-            });
-        }
 
-        // 2. Aggregate metrics
+        // 3. Aggregate Metrics
         let totalOrders = 0;
         let totalProducts = 0;
         let totalRevenue = 0;
         let totalNet = 0;
+        let recentOrders: any[] = []; // We could fetch recent orders here too if needed
 
-        shops.forEach((shop: any) => {
+        const now = Date.now();
+        const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+        const startSec = thirtyDaysAgo / 1000;
+
+        shops?.forEach((shop: any) => {
             totalOrders += shop.shop_orders?.[0]?.count || 0;
             totalProducts += shop.shop_products?.[0]?.count || 0;
-            totalRevenue += shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0) || 0;
-            totalNet += shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0) || 0;
+
+            // Filter settlements for 30d revenue
+            const relevantSettlements = shop.shop_settlements?.filter((s: any) => {
+                const time = new Date(s.settlement_time).getTime() / 1000;
+                return time >= startSec;
+            }) || [];
+
+            totalRevenue += relevantSettlements.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0);
+            totalNet += relevantSettlements.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0);
         });
 
-        // 3. Fetch Unsettled Revenue from database (if synced)
-        // We'll calculate it from the shop_settlements if they contain unsettled data, 
-        // or from a separate table if we implement one. For now, let's try to get it from settlements
-        // that might be marked as unsettled or just use the P&L calculation logic if we can.
-        // Actually, let's fetch it from the unsettled orders if we have them.
-
-        let unsettledRevenue = 0;
-        const { data: unsettledData } = await supabase
-            .from('shop_settlements')
-            .select('settlement_data')
-            .in('shop_id', shops.map((s: any) => s.id));
-
-        // This is a bit complex to do in SQL easily without a dedicated column, 
-        // so we'll do a quick aggregation here if needed, or just return 0 for now 
-        // until we have a better way to store "unsettled" specifically in DB.
-        // Wait, the user wants it to match P&L. P&L calculates it from `finance.unsettledOrders`.
-        // Let's keep it simple and return the totalRevenue as the sum of what's in shop_settlements.
-
-        const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+        // 4. Fetch recent orders for the "Orders" card preview or just to ensure we have them
+        // The user wants "result from orders... updated". We already synced them.
+        // Let's return the latest 5 orders for preview if needed, or just the counts.
+        // The OverviewView mainly needs metrics.
 
         res.json({
             success: true,
             data: {
-                totalOrders,
-                totalProducts,
-                totalRevenue,
-                totalNet,
-                avgOrderValue,
-                unsettledRevenue: 0, // Placeholder for now, will be updated when we have a dedicated table
-                conversionRate: 2.5,
-                shopRating: 4.8
+                metrics: {
+                    totalOrders,
+                    totalProducts,
+                    totalRevenue,
+                    totalNet,
+                    avgOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
+                    conversionRate: 2.5, // Placeholder or fetch from performance
+                    shopRating: 4.8 // Placeholder
+                },
+                lastUpdated: new Date().toISOString()
             }
         });
+
     } catch (error: any) {
-        console.error('[Data API] Metrics error:', error);
+        console.error('[Overview API] Error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -746,27 +778,87 @@ router.get('/sync/cron', async (req: Request, res: Response) => {
 async function syncOrders(shop: any) {
     console.log(`Syncing orders for shop ${shop.shop_name}...`);
     try {
-        // Fetch recent orders (last 30 days)
+        // Fetch recent orders (last 1 year to ensure we get everything including sandbox data)
         const now = Math.floor(Date.now() / 1000);
-        const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
+        const oneYearAgo = now - (365 * 24 * 60 * 60);
 
-        const params = {
-            page_size: 50,
-            page_number: 1,
-            create_time_from: thirtyDaysAgo,
-            create_time_to: now
-        };
+        let allOrders: any[] = [];
+        let nextPageToken = '';
+        let hasMore = true;
+        let page = 1;
 
-        const response = await tiktokShopApi.searchOrders(
-            shop.access_token,
-            shop.shop_cipher,
-            params
-        );
+        while (hasMore) {
+            console.log(`Fetching orders page ${page}... (Token: ${nextPageToken ? 'Yes' : 'No'})`);
+            const params: any = {
+                page_size: '50', // Explicitly string
+                create_time_from: oneYearAgo,
+                create_time_to: now
+            };
 
-        const orders = response.orders || response.order_list || [];
-        console.log(`Found ${orders.length} orders for shop ${shop.shop_name}`);
+            if (nextPageToken) {
+                params.page_token = nextPageToken;
+            } else {
+                params.page_number = page;
+            }
 
-        if (orders.length === 0) return;
+            const response = await tiktokShopApi.searchOrders(
+                shop.access_token,
+                shop.shop_cipher,
+                params
+            );
+
+            const orders = response.orders || response.order_list || [];
+            console.log(`Page ${page} returned ${orders.length} orders. Next Token: ${response.next_page_token ? 'Yes' : 'No'}`);
+
+            if (orders.length === 0) {
+                console.log('No orders returned in this page, stopping.');
+                hasMore = false;
+                break;
+            }
+
+            // Check if we've already seen these orders (API returning duplicate pages)
+            const firstOrderId = orders[0]?.id || orders[0]?.order_id;
+            const isDuplicatePage = allOrders.some(o => (o.id || o.order_id) === firstOrderId);
+
+            if (isDuplicatePage) {
+                console.log(`Detected duplicate page from API (Order ID ${firstOrderId} already exists), stopping sync.`);
+                console.log('This usually means the API ignored the page_token and returned the first page again.');
+                hasMore = false;
+                break;
+            }
+
+            allOrders = [...allOrders, ...orders];
+
+            // If no new token or same token, stop
+            if (!response.next_page_token || response.next_page_token === nextPageToken) {
+                console.log('No new next_page_token returned, stopping sync.');
+                hasMore = false;
+            } else {
+                nextPageToken = response.next_page_token;
+                // TRUST THE TOKEN: If we have a token, we have more, even if page < 50
+                hasMore = true;
+            }
+
+            page++;
+
+            // Safety break - increased to 100 pages (5000 orders)
+            if (page > 100) {
+                console.log('Hit safety limit of 100 pages, stopping.');
+                break;
+            }
+        }
+
+        console.log(`Found total ${allOrders.length} orders for shop ${shop.shop_name}`);
+
+        if (allOrders.length === 0) return;
+
+        // Deduplicate orders by ID
+        const uniqueOrdersMap = new Map();
+        allOrders.forEach(order => {
+            uniqueOrdersMap.set(order.id, order);
+        });
+        const uniqueOrders = Array.from(uniqueOrdersMap.values());
+        console.log(`Deduplicated to ${uniqueOrders.length} unique orders`);
 
         // Find all records for this shop_id to update them all
         const { data: allShops } = await supabase
@@ -777,32 +869,48 @@ async function syncOrders(shop: any) {
         const shopIds = allShops?.map(s => s.id) || [shop.id];
 
         // Batch upsert orders for all associated shop records
-        for (const sId of shopIds) {
-            const upsertData = orders.map((order: any) => ({
-                shop_id: sId,
-                order_id: order.id,
-                order_status: order.status,
-                total_amount: order.payment_info?.total_amount || order.payment?.total_amount || 0,
-                currency: order.payment_info?.currency || order.payment?.currency || 'USD',
-                create_time: new Date(Number(order.create_time) * 1000).toISOString(),
-                update_time: new Date(Number(order.update_time) * 1000).toISOString(),
-                line_items: order.line_items,
-                payment_info: order.payment_info,
-                buyer_info: order.buyer_info,
-                shipping_info: order.shipping_info,
-                updated_at: new Date().toISOString()
-            }));
+        // Process in chunks of 100 to avoid request size limits
+        const chunkSize = 100;
+        for (let i = 0; i < uniqueOrders.length; i += chunkSize) {
+            const chunk = uniqueOrders.slice(i, i + chunkSize);
 
-            const { error } = await supabase
-                .from('shop_orders')
-                .upsert(upsertData, {
-                    onConflict: 'shop_id,order_id'
-                });
+            for (const sId of shopIds) {
+                const upsertData = chunk.map((order: any) => ({
+                    shop_id: sId,
+                    order_id: order.id,
+                    order_status: order.status,
+                    total_amount: order.payment_info?.total_amount || order.payment?.total_amount || 0,
+                    currency: order.payment_info?.currency || order.payment?.currency || 'USD',
+                    create_time: new Date(Number(order.create_time) * 1000).toISOString(),
+                    update_time: new Date(Number(order.update_time) * 1000).toISOString(),
+                    line_items: order.line_items,
+                    payment_info: order.payment || order.payment_info,
+                    buyer_info: order.buyer_info || {
+                        buyer_email: order.buyer_email,
+                        buyer_nickname: order.buyer_nickname,
+                        buyer_avatar: order.buyer_avatar,
+                        buyer_message: order.buyer_message
+                    },
+                    shipping_info: order.shipping_info || {
+                        ...order.recipient_address,
+                        tracking_number: order.tracking_number,
+                        shipping_provider: order.shipping_provider,
+                        shipping_provider_id: order.shipping_provider_id,
+                        delivery_option_name: order.delivery_option_name
+                    },
+                    updated_at: new Date().toISOString()
+                }));
 
-            if (error) {
-                console.error(`Error batch syncing orders for shop record ${sId}:`, error);
+                const { error } = await supabase
+                    .from('shop_orders')
+                    .upsert(upsertData, {
+                        onConflict: 'shop_id,order_id'
+                    });
+
+                if (error) console.error('Error upserting orders chunk:', error);
             }
         }
+
     } catch (error) {
         console.error(`Error in syncOrders for ${shop.shop_name}:`, error);
     }
@@ -812,7 +920,7 @@ async function syncProducts(shop: any) {
     console.log(`Syncing products for shop ${shop.shop_name}...`);
     try {
         const params = {
-            page_size: 50,
+            page_size: '50',
             page_number: 1,
             status: 'ACTIVATE' // Active products
         };
@@ -875,7 +983,7 @@ async function syncSettlements(shop: any) {
         const params = {
             start_time: thirtyDaysAgo,
             end_time: now,
-            page_size: 20,
+            page_size: '20', // Explicitly string
             sort_field: 'statement_time',
             sort_order: 'DESC'
         };
@@ -931,10 +1039,21 @@ async function syncSettlements(shop: any) {
 async function syncPerformance(shop: any) {
     console.log(`Syncing performance for shop ${shop.shop_name}...`);
     try {
+        // Format: YYYY-MM-DD
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+        const params = {
+            start_date_ge: yesterday,
+            end_date_lt: today
+        };
+
         const performance = await tiktokShopApi.makeApiRequest(
-            '/seller/202309/performance',
+            '/analytics/202405/shop/performance',
             shop.access_token,
-            shop.shop_cipher
+            shop.shop_cipher,
+            params,
+            'GET'
         );
 
         if (!performance) return;

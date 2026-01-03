@@ -112,7 +112,7 @@ router.get('/stores', async (req, res) => {
     try {
         console.log('[Admin API] Fetching stores grouped by account...');
 
-        // 1. Fetch all accounts with their owners and shops
+        // 1. Fetch all accounts with their owners and shops (IDs only)
         const { data: accounts, error: accountError } = await supabase
             .from('accounts')
             .select(`
@@ -132,134 +132,107 @@ router.get('/stores', async (req, res) => {
                     shop_name,
                     region,
                     shop_orders (count),
-                    shop_products (count),
-                    shop_settlements (
-                        total_amount,
-                        net_amount
-                    )
+                    shop_products (count)
                 )
             `);
 
-        if (accountError) {
-            console.error('[Admin API] Account fetch error:', accountError);
-            // Fallback to fetching accounts without owners if the join fails
-            const { data: fallbackAccounts, error: fallbackError } = await supabase
-                .from('accounts')
-                .select(`
-                    id,
-                    name,
-                    user_accounts (
-                        profiles (*)
-                    ),
-                    tiktok_shops (
-                        id,
-                        shop_id,
-                        shop_name,
-                        region,
-                        shop_orders (count),
-                        shop_products (count),
-                        shop_settlements (
-                            total_amount,
-                            net_amount
-                        )
-                    )
-                `);
+        if (accountError) throw accountError;
 
-            if (fallbackError) throw fallbackError;
+        // 2. Fetch aggregated metrics for the last 30 days
+        const now = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 30);
+        start.setHours(0, 0, 0, 0); // Midnight
 
-            // Process fallback accounts
-            const processedFallback = fallbackAccounts.map((account: any) => {
-                const shops = account.tiktok_shops || [];
-                let totalOrders = 0;
-                let totalProducts = 0;
-                let totalRevenue = 0;
-                let totalNet = 0;
+        const end = new Date();
+        end.setHours(23, 59, 59, 999); // End of today
 
-                const processedShops = shops.map((shop: any) => {
-                    const ordersCount = shop.shop_orders?.[0]?.count || 0;
-                    const productsCount = shop.shop_products?.[0]?.count || 0;
-                    const revenue = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0) || 0;
-                    const net = shop.shop_settlements?.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0) || 0;
+        // Convert to Unix timestamp (seconds) to match DB/API format
+        const startSec = Math.floor(start.getTime() / 1000);
+        const endSec = Math.floor(end.getTime() / 1000);
 
-                    totalOrders += ordersCount;
-                    totalProducts += productsCount;
-                    totalRevenue += revenue;
-                    totalNet += net;
+        // Get all shop IDs
+        const allShops = accounts.flatMap((a: any) => a.tiktok_shops || []);
+        const shopIds = allShops.map((s: any) => s.id);
 
-                    return {
-                        id: shop.id,
-                        shop_id: shop.shop_id,
-                        shop_name: shop.shop_name,
-                        region: shop.region,
-                        ordersCount,
-                        productsCount,
-                        revenue,
-                        net,
-                        created_at: shop.created_at
-                    };
-                });
+        if (shopIds.length > 0) {
+            // Fetch Orders (Last 30 Days)
+            const { data: recentOrders, error: ordersError } = await supabase
+                .from('shop_orders')
+                .select('shop_id, total_amount, create_time')
+                .in('shop_id', shopIds)
+                .gte('create_time', startSec)
+                .lte('create_time', endSec);
 
-                return {
-                    id: account.id,
-                    account_name: account.name || 'Unknown Account',
-                    owner_id: account.user_accounts?.[0]?.profiles?.id,
-                    owner_role: account.user_accounts?.[0]?.profiles?.role || 'client',
-                    owner_full_name: account.user_accounts?.[0]?.profiles?.full_name || account.name,
-                    original_name: account.name,
-                    storesCount: shops.length,
-                    totalOrders,
-                    totalProducts,
-                    totalRevenue,
-                    totalNet,
-                    stores: processedShops
-                };
+            if (ordersError) console.error('Error fetching recent orders:', ordersError);
+
+            // Fetch Settlements (Last 30 Days)
+            const { data: recentSettlements, error: settlementsError } = await supabase
+                .from('shop_settlements')
+                .select('shop_id, net_amount, total_amount, settlement_time')
+                .in('shop_id', shopIds)
+                .gte('settlement_time', startSec) // Settlement time might also be unix seconds
+                .lte('settlement_time', endSec);
+
+            if (settlementsError) console.error('Error fetching recent settlements:', settlementsError);
+
+            // Map data back to shops
+            allShops.forEach((shop: any) => {
+                shop.recent_orders = recentOrders?.filter((o: any) => o.shop_id === shop.id) || [];
+                shop.recent_settlements = recentSettlements?.filter((s: any) => s.shop_id === shop.id) || [];
             });
-
-            return res.json({ success: true, data: processedFallback });
         }
 
-        // 2. Process and group data
+        // 3. Process and group data
         const processedAccounts = accounts.map((account: any) => {
-            // In the join, user_accounts is an array, and each has a profiles object
             const owner = account.user_accounts?.[0]?.profiles;
             const ownerName = owner?.full_name || owner?.email || account.name || 'Unknown';
 
             const shops = account.tiktok_shops || [];
 
-            // Aggregate metrics across all shops in this account
             let totalOrders = 0;
             let totalProducts = 0;
             let totalRevenue = 0;
             let totalNet = 0;
 
             const processedShops = shops.map((shop: any) => {
-                const ordersCount = shop.shop_orders?.[0]?.count || 0;
                 const productsCount = shop.shop_products?.[0]?.count || 0;
+                // Use total count from DB for "Total Orders" column
+                const totalOrdersCount = shop.shop_orders?.[0]?.count || 0;
 
-                // Filter settlements for last 30 days
-                const now = Date.now();
-                const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
-                const startSec = thirtyDaysAgo / 1000;
+                // Use fetched recent data
+                const recentOrders = shop.recent_orders || [];
+                const recentSettlements = shop.recent_settlements || [];
 
-                const recentSettlements = shop.shop_settlements?.filter((s: any) => s.settlement_time >= startSec) || [];
+                // 1. Calculate Sales Revenue (from Orders)
+                const salesRevenue = recentOrders.reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0);
 
-                const revenue = recentSettlements.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0);
-                const net = recentSettlements.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0);
+                // 2. Calculate Net Payout (from Settlements)
+                const netPayout = recentSettlements.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0);
 
-                totalOrders += ordersCount;
+                // 3. Estimates (Matching ProfitLossView logic)
+                const unsettledRevenue = 0; // Not available in admin view yet
+                const shopRevenue = salesRevenue; // Total Revenue = Sales Revenue
+
+                const productCosts = shopRevenue * 0.3; // 30% COGS
+                const operationalCosts = shopRevenue * 0.1; // 10% Ops
+
+                const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
+
+                totalOrders += totalOrdersCount; // Sum of TOTAL orders
                 totalProducts += productsCount;
-                totalRevenue += revenue;
-                totalNet += net;
+                totalRevenue += shopRevenue;
+                totalNet += netProfit;
 
                 return {
                     id: shop.id,
                     shop_id: shop.shop_id,
                     shop_name: shop.shop_name,
                     region: shop.region,
-                    ordersCount,
+                    ordersCount: recentOrders.length,
                     productsCount,
-                    revenue,
-                    net,
+                    revenue: shopRevenue,
+                    net: netProfit,
                     created_at: shop.created_at
                 };
             });

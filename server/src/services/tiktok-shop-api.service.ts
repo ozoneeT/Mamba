@@ -254,16 +254,6 @@ export class TikTokShopApiService {
                     queryParams.version = version;
                 }
 
-                // Move pagination to query params if present
-                if (page_size) {
-                    signatureParams.page_size = page_size;
-                    queryParams.page_size = page_size;
-                }
-                if (page_number) {
-                    signatureParams.page_number = page_number;
-                    queryParams.page_number = page_number;
-                }
-
                 // If shop_id is provided, use it in both signature and query
                 if (shop_id) {
                     signatureParams.shop_id = shop_id;
@@ -275,10 +265,30 @@ export class TikTokShopApiService {
                 }
                 // ELSE: Keep shop_cipher in queryParams (it was added from systemParams)
 
-                // Add pagination back to bodyParams as well, just in case
+                // Construct body params
                 bodyParams = { ...rest };
-                if (page_size) bodyParams.page_size = page_size;
-                if (page_number) bodyParams.page_number = page_number;
+
+                // For POST requests, pagination usually belongs ONLY in the body
+                // BUT for some endpoints (like Orders), it seems to require them in Query or strict format
+                // Let's add them to BOTH Query and Body to be safe, or prioritize Query if Body fails
+                if (page_size) {
+                    bodyParams.page_size = page_size;
+                    queryParams.page_size = page_size; // Add to Query
+                    signatureParams.page_size = page_size; // Add to Signature
+                }
+                if (page_number) {
+                    bodyParams.page_number = page_number;
+                    queryParams.page_number = page_number; // Add to Query
+                    signatureParams.page_number = page_number; // Add to Signature
+                }
+                if (rest.page_token) {
+                    queryParams.page_token = rest.page_token; // Add to Query
+                    signatureParams.page_token = rest.page_token; // Add to Signature
+                }
+                if (rest.cursor) {
+                    queryParams.cursor = rest.cursor; // Add to Query
+                    signatureParams.cursor = rest.cursor; // Add to Signature
+                }
             }
 
             // Generate signature
@@ -296,7 +306,7 @@ export class TikTokShopApiService {
             console.log(`[TikTokApi] ${method} ${url}`);
             console.log('[TikTokApi] Query Params:', JSON.stringify(queryParams, null, 2));
             console.log('[TikTokApi] Body Params:', JSON.stringify(bodyParams, null, 2));
-            // console.log('[TikTokApi] Headers:', JSON.stringify(headers, null, 2));
+            console.log('[TikTokApi] Headers:', JSON.stringify(headers, null, 2));
 
             let response;
             if (method === 'GET') {
