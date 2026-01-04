@@ -204,22 +204,25 @@ router.get('/stores', async (req, res) => {
                 const recentOrders = shop.recent_orders || [];
                 const recentSettlements = shop.recent_settlements || [];
 
-                // 1. Calculate Sales Revenue (from Orders)
-                const salesRevenue = recentOrders.reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0);
+                // 1. Calculate Sales Revenue (from Orders) - This is our Total Revenue (GMV)
+                const shopRevenue = recentOrders.reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0);
 
                 // 2. Calculate Net Payout (from Settlements)
                 const netPayout = recentSettlements.reduce((sum: number, s: any) => sum + (Number(s.net_amount) || 0), 0);
 
-                // 3. Estimates (Matching ProfitLossView logic)
-                const unsettledRevenue = 0; // Not available in admin view yet
-                const shopRevenue = salesRevenue; // Total Revenue = Sales Revenue
+                // 3. Calculate Unsettled Revenue (Estimated)
+                // If we have orders but no settlements yet, estimate unsettled revenue
+                // Logic: (Total Order Revenue - Settlement Revenue) * 0.85 (estimating 15% platform fees/shipping)
+                const settlementRevenue = recentSettlements.reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0);
+                const unsettledRevenue = Math.max(0, (shopRevenue - settlementRevenue) * 0.85);
 
+                // 4. Estimates (Matching ProfitLossView logic)
                 const productCosts = shopRevenue * 0.3; // 30% COGS
                 const operationalCosts = shopRevenue * 0.1; // 10% Ops
 
                 const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
 
-                totalOrders += totalOrdersCount; // Sum of TOTAL orders
+                totalOrders += totalOrdersCount;
                 totalProducts += productsCount;
                 totalRevenue += shopRevenue;
                 totalNet += netProfit;
@@ -281,19 +284,43 @@ router.get('/stores/:shopId/pl', async (req, res) => {
                 .gte('settlement_time', startDate)
                 .lte('settlement_time', endDate);
         }
-
         const { data: settlements, error: settlementError } = await query;
 
         if (settlementError) throw settlementError;
 
-        // Calculate P&L metrics
-        const totalRevenue = settlements.reduce((sum, s) => sum + (Number(s.total_amount) || 0), 0);
-        const platformFees = settlements.reduce((sum, s) => sum + (Number(s.platform_fee) || 0), 0);
-        const shippingFees = settlements.reduce((sum, s) => sum + (Number(s.shipping_fee) || 0), 0);
-        const affiliateCommissions = settlements.reduce((sum, s) => sum + (Number(s.affiliate_commission) || 0), 0);
-        const refunds = settlements.reduce((sum, s) => sum + (Number(s.refund_amount) || 0), 0);
-        const adjustments = settlements.reduce((sum, s) => sum + (Number(s.adjustment_amount) || 0), 0);
-        const netProfit = settlements.reduce((sum, s) => sum + (Number(s.net_amount) || 0), 0);
+        // 1. Fetch Orders for the same period to get Total Revenue (GMV)
+        let ordersQuery = supabase
+            .from('shop_orders')
+            .select('total_amount')
+            .eq('shop_id', shopId);
+
+        if (startDate && endDate) {
+            ordersQuery = ordersQuery
+                .gte('create_time', startDate)
+                .lte('create_time', endDate);
+        }
+
+        const { data: orders } = await ordersQuery;
+
+        // 2. Calculate P&L metrics (Matching ProfitLossView logic and TikTok API fields)
+        const totalRevenue = orders?.reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0) || 0;
+
+        const platformFees = settlements.reduce((sum, s) => sum + (Math.abs(Number(s.settlement_data?.fee_amount)) || 0), 0);
+        const shippingFees = settlements.reduce((sum, s) => sum + (Math.abs(Number(s.settlement_data?.shipping_cost_amount)) || 0), 0);
+        const affiliateCommissions = settlements.reduce((sum, s) => sum + (Math.abs(Number(s.settlement_data?.affiliate_commission)) || 0), 0);
+        const refunds = settlements.reduce((sum, s) => sum + (Math.abs(Number(s.settlement_data?.refund_amount)) || 0), 0);
+        const adjustments = settlements.reduce((sum, s) => sum + (Number(s.settlement_data?.adjustment_amount) || 0), 0);
+
+        const netPayout = settlements.reduce((sum, s) => sum + (Number(s.net_amount) || 0), 0);
+        const settlementRevenue = settlements.reduce((sum, s) => sum + (Number(s.total_amount) || 0), 0);
+
+        // 3. Calculate Unsettled Revenue (Estimated)
+        const unsettledRevenue = Math.max(0, (totalRevenue - settlementRevenue) * 0.85);
+
+        // 4. Estimates
+        const productCosts = totalRevenue * 0.3;
+        const operationalCosts = totalRevenue * 0.1;
+        const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
 
         res.json({
             success: true,
@@ -304,6 +331,9 @@ router.get('/stores/:shopId/pl', async (req, res) => {
                 affiliateCommissions,
                 refunds,
                 adjustments,
+                productCosts,
+                operationalCosts,
+                unsettledRevenue,
                 netProfit,
                 settlementCount: settlements.length
             }

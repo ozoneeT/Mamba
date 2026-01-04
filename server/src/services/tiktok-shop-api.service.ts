@@ -219,7 +219,9 @@ export class TikTokShopApiService {
         accessToken: string,
         shopCipher: string,
         params: Record<string, any> = {},
-        method: 'GET' | 'POST' = 'GET'
+        method: 'GET' | 'POST' = 'GET',
+        excludeShopCipher: boolean = false,
+        axiosConfig: any = {}
     ): Promise<any> {
         try {
             const timestamp = Math.floor(Date.now() / 1000);
@@ -231,8 +233,8 @@ export class TikTokShopApiService {
                 timestamp: timestamp.toString(),
             };
 
-            // Only add shop_cipher if it's explicitly provided and not null
-            if (shopCipher) {
+            // Only add shop_cipher if it's explicitly provided and not null, AND not excluded
+            if (shopCipher && !excludeShopCipher) {
                 systemParams.shop_cipher = shopCipher;
             }
 
@@ -313,6 +315,7 @@ export class TikTokShopApiService {
                 response = await axios.get(url, {
                     params: queryParams,
                     headers,
+                    ...axiosConfig
                 });
             } else {
                 response = await axios.post(
@@ -321,6 +324,7 @@ export class TikTokShopApiService {
                     {
                         params: queryParams,
                         headers,
+                        ...axiosConfig
                     }
                 );
             }
@@ -400,7 +404,7 @@ export class TikTokShopApiService {
      * GET /shop/get
      */
     async getShopInfo(accessToken: string, shopCipher: string): Promise<any> {
-        return this.makeApiRequest('/shop/202309/shop_info', accessToken, shopCipher);
+        return this.makeApiRequest('/seller/202309/shops', accessToken, shopCipher, {}, 'GET', true);
     }
 
     /**

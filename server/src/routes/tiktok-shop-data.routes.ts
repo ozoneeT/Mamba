@@ -210,6 +210,91 @@ router.get('/shop/:accountId', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/tiktok-shop/cache-status/:accountId
+ * Check cache freshness for a shop
+ * Returns staleness status based on 30-minute threshold
+ */
+router.get('/cache-status/:accountId', async (req: Request, res: Response) => {
+    try {
+        const { accountId } = req.params;
+        const { shopId } = req.query;
+
+        let query = supabase
+            .from('tiktok_shops')
+            .select('orders_last_synced_at, products_last_synced_at, settlements_last_synced_at, performance_last_synced_at, shop_id, shop_name')
+            .eq('account_id', accountId);
+
+        if (shopId) {
+            query = query.eq('shop_id', shopId);
+        }
+
+        const { data: shop, error } = await query.limit(1).single();
+
+        if (error || !shop) {
+            return res.status(404).json({
+                success: false,
+                error: 'Shop not found'
+            });
+        }
+
+        const now = Date.now();
+        const PROMPT_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes - prompt user
+        const AUTO_SYNC_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours - auto-sync
+
+        const shouldPrompt = (lastSyncedAt: string | null): boolean => {
+            if (!lastSyncedAt) return true; // Never synced = prompt
+            const lastSyncTime = new Date(lastSyncedAt).getTime();
+            return (now - lastSyncTime) > PROMPT_THRESHOLD_MS;
+        };
+
+        const shouldAutoSync = (lastSyncedAt: string | null): boolean => {
+            if (!lastSyncedAt) return false; // Never synced = don't auto-sync, just prompt
+            const lastSyncTime = new Date(lastSyncedAt).getTime();
+            return (now - lastSyncTime) > AUTO_SYNC_THRESHOLD_MS;
+        };
+
+        const cacheStatus = {
+            shop_id: shop.shop_id,
+            shop_name: shop.shop_name,
+            // Individual staleness flags (>30 min = prompt user)
+            orders_should_prompt: shouldPrompt(shop.orders_last_synced_at),
+            products_should_prompt: shouldPrompt(shop.products_last_synced_at),
+            settlements_should_prompt: shouldPrompt(shop.settlements_last_synced_at),
+            performance_should_prompt: shouldPrompt(shop.performance_last_synced_at),
+            // Auto-sync flags (>24 hours = auto-sync in background)
+            orders_should_auto_sync: shouldAutoSync(shop.orders_last_synced_at),
+            products_should_auto_sync: shouldAutoSync(shop.products_last_synced_at),
+            settlements_should_auto_sync: shouldAutoSync(shop.settlements_last_synced_at),
+            performance_should_auto_sync: shouldAutoSync(shop.performance_last_synced_at),
+            last_synced_times: {
+                orders: shop.orders_last_synced_at,
+                products: shop.products_last_synced_at,
+                settlements: shop.settlements_last_synced_at,
+                performance: shop.performance_last_synced_at
+            },
+            // Summary flags
+            should_prompt_user: shouldPrompt(shop.orders_last_synced_at) ||
+                shouldPrompt(shop.products_last_synced_at) ||
+                shouldPrompt(shop.settlements_last_synced_at),
+            should_auto_sync: shouldAutoSync(shop.orders_last_synced_at) ||
+                shouldAutoSync(shop.products_last_synced_at) ||
+                shouldAutoSync(shop.settlements_last_synced_at)
+        };
+
+        res.json({
+            success: true,
+            data: cacheStatus
+        });
+    } catch (error: any) {
+        console.error('Error checking cache status:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
  * GET /api/tiktok-shop/orders/synced/:accountId
  * Get all synced orders from the database
  */
@@ -519,21 +604,37 @@ router.get('/performance/:accountId', async (req: Request, res: Response) => {
 router.get('/overview/:accountId', async (req: Request, res: Response) => {
     try {
         const { accountId } = req.params;
-        const { shopId, refresh } = req.query;
+        const { shopId, refresh, background } = req.query;
 
-        console.log(`[Overview API] Fetching overview for account ${accountId}, shop ${shopId || 'all'}, refresh=${refresh}...`);
+        console.log(`[Overview API] Fetching overview for account ${accountId}, shop ${shopId || 'all'}, refresh=${refresh}, background=${background}...`);
 
-        // 1. If refresh=true, trigger sync first
+        // 1. If refresh=true, trigger sync
         if (refresh === 'true') {
             const shop = await getShopWithToken(accountId, shopId as string, true); // Force token refresh if needed
 
-            // Run syncs in parallel
-            await Promise.all([
-                syncOrders(shop),
-                syncProducts(shop),
-                syncSettlements(shop),
-                syncPerformance(shop)
-            ]);
+            if (background === 'true') {
+                // Background mode: Start sync async, don't wait
+                console.log('[Overview API] Starting background sync...');
+                Promise.all([
+                    syncOrders(shop),
+                    syncProducts(shop),
+                    syncSettlements(shop),
+                    syncPerformance(shop)
+                ]).then(() => {
+                    console.log('[Overview API] Background sync completed');
+                }).catch(err => {
+                    console.error('[Overview API] Background sync error:', err);
+                });
+                // Continue immediately to return cached data
+            } else {
+                // Foreground mode: Wait for sync to complete
+                await Promise.all([
+                    syncOrders(shop),
+                    syncProducts(shop),
+                    syncSettlements(shop),
+                    syncPerformance(shop)
+                ]);
+            }
         }
 
         // 2. Fetch Aggregated Data from Supabase
@@ -550,6 +651,10 @@ router.get('/overview/:accountId', async (req: Request, res: Response) => {
                     total_amount,
                     net_amount,
                     settlement_time
+                ),
+                shop_performance (
+                    shop_rating,
+                    date
                 )
             `)
             .eq('account_id', accountId);
@@ -602,7 +707,9 @@ router.get('/overview/:accountId', async (req: Request, res: Response) => {
                     totalNet,
                     avgOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
                     conversionRate: 2.5, // Placeholder or fetch from performance
-                    shopRating: 4.8 // Placeholder
+                    shopRating: (shops && shops.length > 0 && shops[0].shop_performance && shops[0].shop_performance.length > 0)
+                        ? (shops[0].shop_performance[0].shop_rating || 0)
+                        : 0
                 },
                 lastUpdated: new Date().toISOString()
             }
@@ -653,7 +760,12 @@ router.get('/products/synced/:accountId', async (req: Request, res: Response) =>
                     currency: 'USD', // Default or fetch from shop
                     stock: p.stock,
                     sales_count: p.sales_count,
-                    images: p.images
+                    images: p.images || [],
+                    main_image_url: p.main_image_url || (p.images && p.images[0]) || '',
+                    gmv: p.gmv || 0,
+                    orders_count: p.orders_count || 0,
+                    click_through_rate: p.click_through_rate || 0,
+                    details: p.details || null
                 }))
             }
         });
@@ -684,8 +796,12 @@ router.post('/sync/:accountId', async (req: Request, res: Response) => {
             syncPromises.push(syncProducts(shop));
         }
 
-        if (syncType === 'all' || syncType === 'settlements') {
+        if (syncType === 'all' || syncType === 'settlements' || syncType === 'finance') {
             syncPromises.push(syncSettlements(shop));
+        }
+
+        if (syncType === 'all') {
+            syncPromises.push(syncPerformance(shop));
         }
 
         await Promise.all(syncPromises);
@@ -911,6 +1027,17 @@ async function syncOrders(shop: any) {
             }
         }
 
+        // Update sync timestamp
+        await supabase
+            .from('tiktok_shops')
+            .update({
+                orders_last_synced_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('shop_id', shop.shop_id);
+
+        console.log(`✅ Orders sync completed for ${shop.shop_name}`);
+
     } catch (error) {
         console.error(`Error in syncOrders for ${shop.shop_name}:`, error);
     }
@@ -945,30 +1072,150 @@ async function syncProducts(shop: any) {
         const shopIds = allShops?.map(s => s.id) || [shop.id];
 
         // Batch upsert products for all associated shop records
-        for (const sId of shopIds) {
-            const upsertData = products.map((product: any) => ({
-                shop_id: sId,
-                product_id: product.id,
-                product_name: product.title,
-                sku_list: product.skus,
-                status: product.status === 'ACTIVATE' ? 'active' : 'inactive',
-                price: product.skus?.[0]?.price?.tax_exclusive_price || 0,
-                stock: product.skus?.[0]?.inventory?.[0]?.quantity || 0,
-                sales_count: product.sales_regions?.[0]?.sales_count || 0,
-                images: product.images,
-                updated_at: new Date().toISOString()
-            }));
+        // Batch upsert products for all associated shop records
+        for (const product of products) {
+            // Fetch detailed product info
+            let productImages = product.images || [];
+            let fullDetails: any = {};
+            try {
+                const detailResponse = await tiktokShopApi.makeApiRequest(
+                    `/product/202309/products/${product.id}`,
+                    shop.access_token,
+                    shop.shop_cipher,
+                    {},
+                    'GET'
+                );
 
-            const { error } = await supabase
-                .from('shop_products')
-                .upsert(upsertData, {
-                    onConflict: 'shop_id,product_id'
-                });
+                if (detailResponse) {
+                    fullDetails = detailResponse;
+                    if (detailResponse.main_images) {
+                        productImages = detailResponse.main_images.map((img: any) => img.urls[0]);
+                    }
+                }
+            } catch (detailError) {
+                console.warn(`Failed to fetch details for product ${product.id}, using basic info.`);
+            }
 
-            if (error) {
-                console.error(`Error batch syncing products for shop record ${sId}:`, error);
+            for (const sId of shopIds) {
+                const upsertData = {
+                    shop_id: sId,
+                    product_id: product.id,
+                    product_name: product.title,
+                    sku_list: product.skus,
+                    status: product.status === 'ACTIVATE' ? 'active' : 'inactive',
+                    price: product.skus?.[0]?.price?.tax_exclusive_price || 0,
+                    stock: product.skus?.[0]?.inventory?.[0]?.quantity || 0,
+                    sales_count: product.sales_regions?.[0]?.sales_count || 0,
+                    images: productImages, // Use detailed images
+                    main_image_url: productImages[0] || product.main_image, // Ensure main image is set
+                    details: fullDetails, // Store full details
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await supabase
+                    .from('shop_products')
+                    .upsert(upsertData, {
+                        onConflict: 'shop_id,product_id'
+                    });
+
+                if (error) {
+                    console.error(`Error syncing product ${product.id} for shop record ${sId}:`, error);
+                }
             }
         }
+
+        // Fetch Product Performance (Analytics)
+        try {
+            console.log(`Fetching product performance for shop ${shop.shop_name}...`);
+            const today = new Date().toISOString().split('T')[0];
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+
+            const perfParams = {
+                start_date_ge: thirtyDaysAgo,
+                end_date_lt: today,
+                page_size: 20,
+                page_number: 1
+            };
+
+            const perfResponse = await tiktokShopApi.makeApiRequest(
+                '/analytics/202405/shop_products/performance',
+                shop.access_token,
+                shop.shop_cipher,
+                perfParams,
+                'GET',
+                false, // include shop_cipher
+                {
+                    transformResponse: [(data: any) => {
+                        // Regex to quote large numbers in "id" fields to prevent precision loss
+                        // Matches "id": 1234567890123456789 -> "id": "1234567890123456789"
+                        if (typeof data === 'string') {
+                            try {
+                                // Replace "id": 123... with "id": "123..."
+                                // We target 15+ digit numbers to be safe
+                                const fixedData = data.replace(/"id":\s*(\d{15,})/g, '"id": "$1"');
+                                return JSON.parse(fixedData);
+                            } catch (e) {
+                                console.error('[SyncProducts] Error parsing performance JSON:', e);
+                                return JSON.parse(data); // Fallback to default
+                            }
+                        }
+                        return data;
+                    }]
+                }
+            );
+
+            console.log(`[SyncProducts] Performance Response for ${shop.shop_name}:`, JSON.stringify(perfResponse, null, 2));
+
+            if (perfResponse && perfResponse.products && Array.isArray(perfResponse.products)) {
+                const perfProducts = perfResponse.products;
+                console.log(`[SyncProducts] Found ${perfProducts.length} performance records`);
+
+                for (const sId of shopIds) {
+                    for (const perf of perfProducts) {
+                        // Update product with performance metrics
+                        // Note: perf.id is a string/number, need to match with product_id
+                        const perfId = String(perf.id);
+                        console.log(`[SyncProducts] Updating performance for product ${perfId} (GMV: ${perf.gmv?.amount}, Orders: ${perf.orders})`);
+
+                        const { error: updateError, count } = await supabase
+                            .from('shop_products')
+                            .update({
+                                click_through_rate: parseFloat(perf.click_through_rate || '0'),
+                                gmv: parseFloat(perf.gmv?.amount || '0'),
+                                orders_count: parseInt(perf.orders || '0', 10),
+                                sales_count: parseInt(perf.units_sold || '0', 10), // Update sales_count/units_sold as well
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('shop_id', sId)
+                            .eq('product_id', perfId)
+                            .select(); // Select to check if any row was updated
+
+                        if (updateError) {
+                            console.error(`[SyncProducts] Failed to update performance for product ${perfId}:`, updateError);
+                        } else if (count === 0) {
+                            console.warn(`[SyncProducts] No product found in DB matching performance ID ${perfId} for shop ${sId}`);
+                        } else {
+                            console.log(`[SyncProducts] Successfully updated performance for product ${perfId}`);
+                        }
+                    }
+                }
+            }
+
+        } catch (perfError: any) {
+            console.error(`[SyncProducts] Failed to fetch product performance: ${perfError.message}`);
+        }
+
+        // Update sync timestamp
+        await supabase
+            .from('tiktok_shops')
+            .update({
+                products_last_synced_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('shop_id', shop.shop_id);
+
+        console.log(`✅ Products sync completed for ${shop.shop_name}`);
+
     } catch (error) {
         console.error(`Error in syncProducts for ${shop.shop_name}:`, error);
     }
@@ -1016,6 +1263,10 @@ async function syncSettlements(shop: any) {
                 settlement_time: new Date(Number(settlement.statement_time) * 1000).toISOString(),
                 total_amount: parseFloat(settlement.revenue_amount || '0'),
                 net_amount: parseFloat(settlement.settlement_amount || '0'),
+                fee_amount: parseFloat(settlement.fee_amount || '0'),
+                adjustment_amount: parseFloat(settlement.adjustment_amount || '0'),
+                shipping_fee: parseFloat(settlement.shipping_cost_amount || '0'),
+                net_sales_amount: parseFloat(settlement.net_sales_amount || '0'),
                 currency: settlement.currency || 'USD',
                 settlement_data: settlement,
                 updated_at: new Date().toISOString()
@@ -1031,6 +1282,18 @@ async function syncSettlements(shop: any) {
                 console.error(`Error batch syncing settlements for shop record ${sId}:`, error);
             }
         }
+
+        // Update sync timestamp
+        await supabase
+            .from('tiktok_shops')
+            .update({
+                settlements_last_synced_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('shop_id', shop.shop_id);
+
+        console.log(`✅ Settlements sync completed for ${shop.shop_name}`);
+
     } catch (error) {
         console.error(`Error in syncSettlements for ${shop.shop_name}:`, error);
     }
@@ -1048,6 +1311,7 @@ async function syncPerformance(shop: any) {
             end_date_lt: today
         };
 
+        // 1. Fetch Performance Data
         const performance = await tiktokShopApi.makeApiRequest(
             '/analytics/202405/shop/performance',
             shop.access_token,
@@ -1056,11 +1320,17 @@ async function syncPerformance(shop: any) {
             'GET'
         );
 
-        if (!performance) return;
 
-        // The API might return multiple days or just today
-        // For now, we'll assume it's today's data or a list
-        const data = Array.isArray(performance) ? performance : [performance];
+
+        if (!performance || !performance.performance || !performance.performance.intervals) {
+            console.log('[SyncPerformance] No performance intervals found in response');
+            return;
+        }
+
+        const data = performance.performance.intervals;
+        console.log(`[SyncPerformance] Found ${data.length} performance intervals`);
+
+        console.log('[SyncPerformance] Response data sample:', JSON.stringify(data[0] || {}, null, 2));
 
         for (const record of data) {
             const { error } = await supabase
@@ -1073,6 +1343,8 @@ async function syncPerformance(shop: any) {
                     total_items_sold: record.total_items_sold || 0,
                     avg_order_value: record.avg_order_value || 0,
                     conversion_rate: record.conversion_rate || 0,
+                    shop_rating: record.shop_rating || record.performance_score || null,
+                    review_count: record.review_count || record.shop_review_count || 0,
                     updated_at: new Date().toISOString()
                 }, {
                     onConflict: 'shop_id,date'
@@ -1082,6 +1354,18 @@ async function syncPerformance(shop: any) {
                 console.error(`Error syncing performance for ${shop.shop_name}:`, error);
             }
         }
+
+        // Update sync timestamp
+        await supabase
+            .from('tiktok_shops')
+            .update({
+                performance_last_synced_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('shop_id', shop.shop_id);
+
+        console.log(`✅ Performance sync completed for ${shop.shop_name}`);
+
     } catch (error) {
         console.error(`Error in syncPerformance for ${shop.shop_name}:`, error);
     }
