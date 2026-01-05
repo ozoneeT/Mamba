@@ -17,6 +17,23 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
         }
     };
 
+    // Calculate SKU information
+    const skus = product.skus || [];
+    const hasMultipleSkus = skus.length > 1;
+
+    // Get price range if multiple SKUs with different prices
+    const prices = skus.map(sku => parseFloat(sku.price?.tax_exclusive_price || '0'));
+    const minPrice = prices.length > 0 ? Math.min(...prices) : product.price;
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : product.price;
+    const hasPriceRange = minPrice !== maxPrice;
+
+    // Calculate total stock across all SKUs
+    const totalStock = skus.reduce((sum, sku) => {
+        const skuStock = sku.inventory?.reduce((s, inv) => s + inv.quantity, 0) || 0;
+        return sum + skuStock;
+    }, 0);
+    const displayStock = totalStock > 0 ? totalStock : product.stock_quantity;
+
     return (
         <div
             onClick={onClick}
@@ -34,10 +51,15 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
                         <Package size={48} className="text-gray-600" />
                     </div>
                 )}
-                <div className="absolute top-2 right-2">
+                <div className="absolute top-2 right-2 flex gap-2">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
                         {product.status}
                     </span>
+                    {hasMultipleSkus && (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-pink-900/50 text-pink-400">
+                            {skus.length} variants
+                        </span>
+                    )}
                 </div>
             </div>
 
@@ -47,7 +69,15 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
                 </h3>
 
                 <div className="flex items-baseline gap-1 mb-4">
-                    <span className="text-lg font-bold text-pink-500">{product.currency} {product.price}</span>
+                    {hasPriceRange ? (
+                        <span className="text-lg font-bold text-pink-500">
+                            {product.currency} {minPrice.toFixed(2)} - {maxPrice.toFixed(2)}
+                        </span>
+                    ) : (
+                        <span className="text-lg font-bold text-pink-500">
+                            {product.currency} {product.price}
+                        </span>
+                    )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-sm">
@@ -55,7 +85,7 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
                         <p className="text-gray-400 text-xs mb-1">Stock</p>
                         <p className="text-white font-medium flex items-center gap-1">
                             <Package size={12} />
-                            {product.stock_quantity}
+                            {displayStock}
                         </p>
                     </div>
                     <div className="bg-gray-700/30 p-2 rounded-lg">
@@ -68,7 +98,7 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
                 </div>
             </div>
 
-            {product.stock_quantity === 0 && (
+            {displayStock === 0 && (
                 <div className="mt-3 flex items-center gap-2 text-red-400 text-xs bg-red-900/20 p-2 rounded-lg">
                     <AlertCircle size={12} />
                     <span>Out of stock</span>

@@ -1,7 +1,10 @@
+
 import { TrendingUp, DollarSign, ShoppingBag, Package, Users, Star, RefreshCw, AlertCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { StatCard } from '../StatCard';
 import { Account } from '../../lib/supabase';
+import { RefreshPrompt } from '../RefreshPrompt';
+import { useShopStore } from '../../store/useShopStore';
 
 interface OverviewViewProps {
   account: Account;
@@ -10,15 +13,18 @@ interface OverviewViewProps {
 }
 
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
-import { useShopStore } from '../../store/useShopStore';
+
+
 
 export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps) {
   const metrics = useShopStore(state => state.metrics);
   const isLoading = useShopStore(state => state.isLoading);
   const error = useShopStore(state => state.error);
   const fetchShopData = useShopStore(state => state.fetchShopData);
+  const syncData = useShopStore(state => state.syncData);
+  const cacheMetadata = useShopStore(state => state.cacheMetadata);
+  const dismissRefreshPrompt = useShopStore(state => state.dismissRefreshPrompt);
 
   const orders = useShopStore(state => state.orders);
   const finance = useShopStore(state => state.finance);
@@ -42,56 +48,51 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
 
   // Calculate metrics using P&L logic
   useEffect(() => {
-    const calculateMetrics = () => {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - 30);
+    // Use exact same date range logic as ProfitLossView (UTC midnight)
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
 
-      // Set to midnight (Start of day)
-      start.setHours(0, 0, 0, 0);
-      // Set to end of day
-      end.setHours(23, 59, 59, 999);
+    // Set to UTC midnight
+    const startIso = start.toISOString().split('T')[0];
+    const endIso = end.toISOString().split('T')[0];
 
-      const startTime = start.getTime() / 1000;
-      const endTime = end.getTime() / 1000;
+    const startTime = new Date(startIso).getTime() / 1000;
+    const endTime = new Date(endIso).getTime() / 1000 + 86400; // End of day
 
-      // Filter for last 30 days
-      const filteredOrders = orders.filter(o => o.created_time >= startTime && o.created_time <= endTime);
-      const filteredStatements = finance.statements.filter(s => s.statement_time >= startTime && s.statement_time <= endTime);
+    // Filter for last 30 days
+    const filteredOrders = orders.filter(o => o.created_time >= startTime && o.created_time <= endTime);
+    const filteredStatements = finance.statements.filter(s => s.statement_time >= startTime && s.statement_time <= endTime);
 
-      // Calculate Metrics (Same logic as ProfitLossView)
-      const salesRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
-      const netPayout = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount), 0);
+    // Calculate Metrics (Same logic as ProfitLossView)
+    const salesRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
+    const netPayout = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount), 0);
 
-      // Unsettled revenue from store
-      const unsettledRevenue = finance.unsettledOrders.reduce((sum, t) => sum + parseFloat(t.est_revenue_amount || '0'), 0);
+    // Calculate Unsettled Revenue (Estimated)
+    // Logic: (Total Order Revenue - Settlement Revenue) * 0.85 (estimating 15% platform fees/shipping)
+    const settlementRevenue = filteredStatements.reduce((sum, s) => sum + parseFloat(s.revenue_amount || '0'), 0);
+    const unsettledRevenue = Math.max(0, (salesRevenue - settlementRevenue) * 0.85);
 
-      const totalRevenue = salesRevenue;
+    const totalRevenue = salesRevenue;
 
-      // Estimates
-      const productCosts = totalRevenue * 0.3; // Estimated 30% COGS
-      const operationalCosts = totalRevenue * 0.1; // Estimated 10% Ops
+    // Estimates
+    const productCosts = totalRevenue * 0.3; // Estimated 30% COGS
+    const operationalCosts = totalRevenue * 0.1; // Estimated 10% Ops
 
-      const grossProfit = totalRevenue - productCosts;
-      const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
+    const grossProfit = totalRevenue - productCosts;
+    const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
 
-      // Calculate Completed Orders
-      const completedOrdersCount = orders.filter(o => o.order_status === 'COMPLETED').length;
+    // Calculate Completed Orders
+    const completedOrdersCount = orders.filter(o => o.order_status === 'COMPLETED').length;
 
-      setCalculatedMetrics({
-        totalRevenue,
-        netProfit,
-        grossProfit
-      });
+    setCalculatedMetrics({
+      totalRevenue,
+      netProfit,
+      grossProfit
+    });
 
-      // We can also store this in a local state or just pass it down if we want to avoid re-renders, 
-      // but since we are inside the effect that runs on orders change, we can update a state variable.
-      // Actually, let's just calculate it in the render or use a separate state.
-      setCompletedOrders(completedOrdersCount);
-    };
-
-    calculateMetrics();
-  }, [orders, finance.statements, finance.unsettledOrders]);
+    setCompletedOrders(completedOrdersCount);
+  }, [orders, finance.statements]);
 
   const [completedOrders, setCompletedOrders] = useState(0);
 
@@ -99,56 +100,38 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
   // The store is populated by App.tsx on mount
 
   const handleSync = async () => {
-    try {
-      setSyncing(true);
-      const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${account.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ shopId, syncType: 'all' }),
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        // Refresh metrics after sync
-        // We invalidate the cache timestamp to force a fetch from DB, 
-        // but pass false to fetchShopData to avoid triggering another remote sync
-        useShopStore.setState({ lastFetchTime: null });
-        const fetchShopData = useShopStore.getState().fetchShopData;
-        await fetchShopData(account.id, shopId, false);
-      } else {
-        console.error('Sync failed:', result.error);
-        alert('Failed to sync data: ' + result.error);
-      }
-    } catch (error) {
-      console.error('Error syncing data:', error);
-      alert('Error triggering sync');
-    } finally {
-      setSyncing(false);
-    }
+    if (!shopId) return;
+    setSyncing(true);
+    await syncData(account.id, shopId, 'all');
+    setSyncing(false);
+    setLastUpdated(new Date());
   };
 
   const formatNumber = (num: number): string => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)} M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)} K`;
     return num.toLocaleString();
   };
 
   const formatCurrency = (num: number): string => {
-    return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} `;
   };
 
-  if (isLoading && metrics.totalOrders === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
-      </div>
-    );
-  }
+
 
   return (
     <div className="space-y-6">
+      {/* Refresh Prompt */}
+      {cacheMetadata.showRefreshPrompt && (
+        <RefreshPrompt
+          onRefresh={() => syncData(account.id, shopId!, 'all')}
+          onDismiss={dismissRefreshPrompt}
+          isStale={cacheMetadata.isStale}
+        />
+      )}
+
+
+
       {error && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -158,7 +141,7 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             </p>
           </div>
           <button
-            onClick={() => fetchShopData(account.id, shopId, true)}
+            onClick={() => fetchShopData(account.id, shopId, { forceRefresh: true })}
             className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
           >
             <RefreshCw className="w-3 h-3" />
@@ -202,12 +185,12 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             <button
               onClick={handleSync}
               disabled={syncing}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${syncing
+              className={`flex items - center gap - 2 px - 4 py - 2 rounded - lg text - sm font - medium transition - all ${syncing
                 ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                : 'bg-pink-600 hover:bg-pink-700 text-white shadow-lg shadow-pink-500/20'
-                }`}
+                : 'flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors disabled:opacity-50'
+                } `}
             >
-              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w - 4 h - 4 ${syncing ? 'animate-spin' : ''} `} />
               {syncing ? 'Syncing...' : 'Sync Now'}
             </button>
             {lastUpdated && (
@@ -234,7 +217,6 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
           <StatCard
             title="Total Orders"
             value={metrics.totalOrders.toLocaleString()}
-            subValue={formatCurrency(calculatedMetrics.totalRevenue) + " Total Value"}
             change={0} // Placeholder, ideally calculated
             icon={ShoppingBag}
             iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
@@ -275,18 +257,12 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <StatCard
             title="Conversion Rate"
-            value={`${metrics.conversionRate.toFixed(2)}%`}
+            value={`${metrics.conversionRate.toFixed(2)}% `}
             icon={Users}
             iconColor="bg-gradient-to-r from-pink-500 to-purple-500"
             subtitle="Visitors to buyers"
           />
-          <StatCard
-            title="Shop Rating"
-            value={metrics.shopRating > 0 ? metrics.shopRating.toFixed(1) : 'N/A'}
-            icon={Star}
-            iconColor="bg-gradient-to-r from-yellow-500 to-orange-500"
-            subtitle="Customer satisfaction"
-          />
+
         </div>
       </div>
 

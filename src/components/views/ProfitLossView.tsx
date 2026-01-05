@@ -3,8 +3,11 @@ import { useState, useEffect } from 'react';
 import { StatCard } from '../StatCard';
 import { useShopStore } from '../../store/useShopStore';
 import { DateRangePicker, DateRange } from '../DateRangePicker';
+import { RefreshCw } from 'lucide-react';
+import { Account } from '../../lib/supabase';
 
 interface ProfitLossViewProps {
+  account: Account;
   shopId?: string;
 }
 
@@ -34,14 +37,23 @@ const getDefaultDateRange = (): DateRange => {
   };
 };
 
-export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
+export function ProfitLossView({ account, shopId }: ProfitLossViewProps) {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
   const orders = useShopStore(state => state.orders);
   const finance = useShopStore(state => state.finance);
   const isLoading = useShopStore(state => state.isLoading);
+  const syncData = useShopStore(state => state.syncData);
 
   const [plMetrics, setPlMetrics] = useState<ProfitLossMetrics | null>(null);
   const [calculating, setCalculating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    if (!shopId) return;
+    setIsSyncing(true);
+    await syncData(account.id, shopId, 'finance');
+    setIsSyncing(false);
+  };
 
   useEffect(() => {
     if (!isLoading) {
@@ -53,7 +65,7 @@ export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
     try {
       setCalculating(true);
 
-      // Filter orders by date range
+      // Filter orders by date range (UTC midnight)
       const start = new Date(dateRange.startDate).getTime() / 1000;
       const end = new Date(dateRange.endDate).getTime() / 1000 + 86400; // End of day
 
@@ -65,10 +77,11 @@ export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
       const netPayout = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount), 0);
 
       // Calculate Unsettled Revenue (Estimated)
-      const unsettledRevenue = finance.unsettledOrders.reduce((sum, t) => sum + parseFloat(t.est_revenue_amount || '0'), 0);
+      // Logic: (Total Order Revenue - Settlement Revenue) * 0.85 (estimating 15% platform fees/shipping)
+      const settlementRevenue = filteredStatements.reduce((sum, s) => sum + parseFloat(s.revenue_amount || '0'), 0);
+      const unsettledRevenue = Math.max(0, (salesRevenue - settlementRevenue) * 0.85);
 
       // Total Revenue should be Sales Revenue (GMV)
-      // Unsettled revenue is already included in Sales Revenue (as orders) but not yet in Payout
       const totalRevenue = salesRevenue;
 
       // Estimates (since we don't have this data from API yet)
@@ -128,7 +141,17 @@ export function ProfitLossView({ shopId: _shopId }: ProfitLossViewProps) {
           <h2 className="text-2xl font-bold text-white mb-2">Profit & Loss Statement</h2>
           <p className="text-gray-400">Financial performance and profitability analysis</p>
         </div>
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <div className="flex gap-3">
+          <button
+            onClick={handleSync}
+            disabled={isSyncing || isLoading}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={20} className={isSyncing ? "animate-spin" : ""} />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Finance'}</span>
+          </button>
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -241,8 +241,12 @@ function PLBreakdownModal({ shop, onClose }: { shop: any, onClose: () => void })
                             {/* Revenue Section */}
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between text-sm">
-                                    <span className="text-gray-400">Total Revenue</span>
+                                    <span className="text-gray-400">Sales Revenue (Orders)</span>
                                     <span className="text-white font-bold">${plData.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-gray-500">Unsettled Revenue (Est.)</span>
+                                    <span className="text-cyan-400">+${plData.unsettledRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                                 </div>
                                 <div className="h-px bg-gray-800" />
 
@@ -269,6 +273,15 @@ function PLBreakdownModal({ shop, onClose }: { shop: any, onClose: () => void })
                                         <span className={plData.adjustments >= 0 ? 'text-green-400' : 'text-red-400'}>
                                             {plData.adjustments >= 0 ? '+' : ''}${plData.adjustments.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                         </span>
+                                    </div>
+                                    <div className="h-px bg-gray-800/50 my-2" />
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-gray-500">Product Costs (Est. 30%)</span>
+                                        <span className="text-red-400">-${plData.productCosts.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-gray-500">Operational Costs (Est. 10%)</span>
+                                        <span className="text-red-400">-${plData.operationalCosts.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                                     </div>
                                 </div>
                             </div>

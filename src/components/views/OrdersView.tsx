@@ -11,7 +11,7 @@ interface OrdersViewProps {
 }
 
 export function OrdersView({ account, shopId }: OrdersViewProps) {
-    const { orders, isLoading, fetchShopData } = useShopStore();
+    const { orders, isLoading, fetchShopData, syncData } = useShopStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -23,7 +23,7 @@ export function OrdersView({ account, shopId }: OrdersViewProps) {
     const handleSync = async () => {
         if (!shopId) return;
         setIsSyncing(true);
-        await fetchShopData(account.id, shopId, true);
+        await syncData(account.id, shopId, 'orders');
         setIsSyncing(false);
     };
 

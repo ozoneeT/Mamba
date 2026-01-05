@@ -11,7 +11,7 @@ interface ProductsViewProps {
 }
 
 export function ProductsView({ account, shopId }: ProductsViewProps) {
-    const { products, isLoading, fetchShopData } = useShopStore();
+    const { products, isLoading, fetchShopData, syncData } = useShopStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -23,7 +23,7 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
     const handleSync = async () => {
         if (!shopId) return;
         setIsSyncing(true);
-        await fetchShopData(account.id, shopId, true);
+        await syncData(account.id, shopId, 'products');
         setIsSyncing(false);
     };
 

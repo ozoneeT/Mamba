@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
+import { OverlayLoader } from './OverlayLoader';
+import { SyncIndicator } from './SyncIndicator';
 import { OverviewView } from './views/OverviewView';
 import { ProfitLossView } from './views/ProfitLossView';
 import { OrdersView } from './views/OrdersView';
@@ -31,6 +33,8 @@ export function Dashboard() {
   const [selectedShop, setSelectedShop] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [isSyncing, setIsSyncing] = useState(false);
+  const isShopLoading = useShopStore(state => state.isLoading);
+  const cacheMetadata = useShopStore(state => state.cacheMetadata);
 
   // --- Queries ---
 
@@ -134,7 +138,7 @@ export function Dashboard() {
         // No shops found anywhere (for admin) or for current user (for client)
         setShowWelcome(true);
       }
-    } else if (!isLoadingAccounts && !isLoadingShops && !selectedAccount && profile?.role !== 'admin') {
+    } else if (!isLoadingAccounts && !isLoadingShops && !selectedAccount && accounts.length === 0 && profile?.role !== 'admin') {
       // No account, show welcome (only for non-admins)
       setShowWelcome(true);
     }
@@ -468,7 +472,11 @@ export function Dashboard() {
   const isUserAdmin = profile?.role === 'admin';
   const hasPlatformShops = isUserAdmin && adminAccounts.some((acc: any) => acc.stores.length > 0);
 
-  const needsWelcome = !hasSkippedWelcome && !hasPlatformShops && ((!selectedAccount && !isLoadingAccounts && !isUserAdmin) || (showWelcome && !isLoadingShops));
+  // Admins should NOT see the welcome screen if they have platform shops or if they are still loading admin stores
+  const needsWelcome = !hasSkippedWelcome &&
+    !hasPlatformShops &&
+    ((!selectedAccount && accounts.length === 0 && !isLoadingAccounts && !isUserAdmin) ||
+      (showWelcome && !isLoadingShops && (!isUserAdmin || !isLoadingAdminStores)));
 
   if (needsWelcome) {
     return (
@@ -501,7 +509,12 @@ export function Dashboard() {
                     setViewMode('list');
                     setSelectedShop(null);
                   }}
-                  className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors"
+                  disabled={cacheMetadata.isSyncing}
+                  className={`p-2 rounded-full transition-colors ${cacheMetadata.isSyncing
+                    ? 'opacity-50 cursor-not-allowed text-gray-600'
+                    : 'hover:bg-gray-800 text-gray-400 hover:text-white'
+                    }`}
+                  title={cacheMetadata.isSyncing ? "Syncing in progress..." : "Back to shop list"}
                 >
                   <ArrowLeft size={24} />
                 </button>
@@ -515,63 +528,73 @@ export function Dashboard() {
             )}
           </div>
 
-          {isLoadingShops ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-500 border-t-transparent"></div>
-            </div>
-          ) : viewMode === 'list' ? (
-            <ShopList
-              shops={shops}
-              adminAccounts={adminAccounts}
-              onSelectShop={(shop: any, accountContext?: any) => {
-                const targetAccountId = accountContext?.id || selectedAccount?.id;
+          <OverlayLoader
+            isLoading={(!selectedAccount && accounts.length > 0) || (viewMode === 'list' ? (isLoadingShops || (profile?.role === 'admin' && isLoadingAdminStores)) : isShopLoading)}
+            message={viewMode === 'list' ? "Loading shops..." : "Loading shop data..."}
+          >
+            {viewMode === 'list' ? (
+              <ShopList
+                shops={shops}
+                adminAccounts={adminAccounts}
+                onSelectShop={(shop: any, accountContext?: any) => {
+                  const targetAccountId = accountContext?.id || selectedAccount?.id;
 
-                if (accountContext) {
-                  // If we have account context (admin mode), update selectedAccount
-                  // This allows the details views to fetch data for the correct account
-                  setSelectedAccount({
-                    id: accountContext.id,
-                    name: accountContext.original_name || accountContext.account_name,
-                    status: 'active',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    tiktok_handle: accountContext.owner_full_name || '',
-                    owner_id: accountContext.owner_id, // Adding this for realtime
-                    owner_role: accountContext.owner_role // Adding this for the header
-                  } as any);
+                  if (accountContext) {
+                    // If we have account context (admin mode), update selectedAccount
+                    // This allows the details views to fetch data for the correct account
+                    setSelectedAccount({
+                      id: accountContext.id,
+                      name: accountContext.original_name || accountContext.account_name,
+                      status: 'active',
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                      tiktok_handle: accountContext.owner_full_name || '',
+                      owner_id: accountContext.owner_id, // Adding this for realtime
+                      owner_role: accountContext.owner_role // Adding this for the header
+                    } as any);
+                  }
+
+                  setSelectedShop(shop);
+                  setViewMode('details');
+
+                  // Load cached data first, then auto-sync if stale
+                  if (targetAccountId && shop.shop_id) {
+                    console.log('[Dashboard] Loading shop data for:', shop.shop_name, 'Account:', targetAccountId);
+                    useShopStore.getState().fetchShopData(
+                      targetAccountId,
+                      shop.shop_id,
+                      { showCached: true, forceRefresh: false }
+                    );
+                  }
+                }}
+                onAddShop={handleConnectShop}
+                onAddAgency={handleConnectAgency}
+                onSyncShops={handleSyncShops}
+                onDeleteShop={handleDeleteShop}
+                isLoading={false} // Handled by OverlayLoader
+                isSyncing={isSyncing}
+              />
+            ) : (
+              // Details Views
+              (() => {
+                switch (activeTab) {
+                  case 'overview': return selectedAccount ? <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} onNavigate={setActiveTab} /> : null;
+                  case 'orders': return selectedAccount ? <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
+                  case 'products': return selectedAccount ? <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
+                  case 'profit-loss': return selectedAccount ? <ProfitLossView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
+                  case 'profile': return <ProfileView />;
+                  case 'admin-dashboard': return <AdminDashboard />;
+                  case 'admin-users': return <AdminUserManagement />;
+                  case 'admin-stores': return <AdminStoreManagement />;
+                  default: return selectedAccount ? <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
                 }
+              })()
+            )}
+          </OverlayLoader>
 
-                setSelectedShop(shop);
-                setViewMode('details');
-
-                // Trigger fetch immediately with the correct account ID
-                if (targetAccountId && shop.shop_id) {
-                  console.log('[Dashboard] Triggering fetch for:', shop.shop_name, 'Account:', targetAccountId);
-                  useShopStore.getState().fetchShopData(targetAccountId, shop.shop_id);
-                }
-              }}
-              onAddShop={handleConnectShop}
-              onAddAgency={handleConnectAgency}
-              onSyncShops={handleSyncShops}
-              onDeleteShop={handleDeleteShop}
-              isLoading={isLoadingShops || (profile?.role === 'admin' && isLoadingAdminStores)}
-              isSyncing={isSyncing}
-            />
-          ) : (
-            // Details Views
-            (() => {
-              switch (activeTab) {
-                case 'overview': return selectedAccount ? <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} onNavigate={setActiveTab} /> : null;
-                case 'orders': return selectedAccount ? <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
-                case 'products': return selectedAccount ? <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
-                case 'profit-loss': return <ProfitLossView shopId={selectedShop?.shop_id} />;
-                case 'profile': return <ProfileView />;
-                case 'admin-dashboard': return <AdminDashboard />;
-                case 'admin-users': return <AdminUserManagement />;
-                case 'admin-stores': return <AdminStoreManagement />;
-                default: return selectedAccount ? <OverviewView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
-              }
-            })()
+          {/* Global Sync Indicator */}
+          {cacheMetadata.isSyncing && (
+            <SyncIndicator message="Syncing latest data..." />
           )}
         </div>
       </main>
