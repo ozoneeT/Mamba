@@ -131,4 +131,21 @@ router.get('/unsettled/:accountId', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/tiktok-shop/finance/transactions/order/:accountId/:orderId
+ */
+router.get('/transactions/order/:accountId/:orderId', async (req, res) => {
+    try {
+        const { accountId, orderId } = req.params;
+        const { shopId, ...query } = req.query;
+
+        const shop = await getShopWithToken(accountId, shopId as string);
+        const data = await tiktokShopApi.getOrderTransactions(shop.access_token, shop.shop_cipher, orderId, query);
+
+        res.json({ success: true, data });
+    } catch (error) {
+        handleApiError(res, error);
+    }
+});
+
 export default router;

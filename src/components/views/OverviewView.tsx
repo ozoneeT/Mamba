@@ -186,11 +186,11 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
               onClick={handleSync}
               disabled={syncing}
               className={`flex items - center gap - 2 px - 4 py - 2 rounded - lg text - sm font - medium transition - all ${syncing
-                ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                ? 'bg-gray-700 text-gray-400 cursor-not-allowed items-center space-x-2 px-4 py-2'
                 : 'flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors disabled:opacity-50'
                 } `}
             >
-              <RefreshCw className={`w - 4 h - 4 ${syncing ? 'animate-spin' : ''} `} />
+              <RefreshCw className={`w - 4 h - 4 mr-2 ${syncing ? 'animate-spin' : ''} `} />
               {syncing ? 'Syncing...' : 'Sync Now'}
             </button>
             {lastUpdated && (

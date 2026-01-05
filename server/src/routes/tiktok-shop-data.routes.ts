@@ -88,21 +88,8 @@ router.get('/shops/:accountId', async (req: Request, res: Response) => {
         const { accountId } = req.params;
         const { refresh } = req.query;
 
-        // Check user role first
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', accountId)
-            .single();
-
-        const isAdmin = profile?.role === 'admin';
-
-        // If refresh is requested, sync with TikTok first (ONLY if not admin, or handle admin refresh differently)
-        // For now, let's keep refresh logic tied to the specific account unless it's a global admin refresh which is complex.
-        // The user requirement says "when i loggin get the shopList from supabase... Do not call any api from tiktok at this point"
-        // So we only refresh if explicitly asked.
-
-        if (refresh === 'true' && !isAdmin) {
+        // If refresh is requested, sync with TikTok first
+        if (refresh === 'true') {
             // Get any existing shop to get the access token
             const { data: existingShop } = await supabase
                 .from('tiktok_shops')
@@ -153,16 +140,11 @@ router.get('/shops/:accountId', async (req: Request, res: Response) => {
             }
         }
 
-        // Fetch shops based on role
-        let query = supabase
+        // Fetch shops for this specific account
+        const { data: shops, error } = await supabase
             .from('tiktok_shops')
-            .select('shop_id, shop_name, region, seller_type, created_at, account_id');
-
-        if (!isAdmin) {
-            query = query.eq('account_id', accountId);
-        }
-
-        const { data: shops, error } = await query;
+            .select('shop_id, shop_name, region, seller_type, created_at, account_id')
+            .eq('account_id', accountId);
 
         if (error) {
             throw error;

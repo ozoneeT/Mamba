@@ -13,12 +13,15 @@ interface AdminAccount {
     account_name: string;
     owner_role?: string;
     original_name?: string;
+    owner_id?: string;
     stores: Shop[];
 }
 
 interface ShopListProps {
     shops: Shop[];
     adminAccounts?: AdminAccount[];
+    currentUserId?: string;
+    deletingShopId?: string | null;
     onSelectShop: (shop: Shop, account?: AdminAccount) => void;
     onAddShop: () => void;
     onAddAgency?: () => void;
@@ -28,20 +31,30 @@ interface ShopListProps {
     isSyncing?: boolean;
 }
 
-function ShopCard({ shop, onSelect, onDelete }: { shop: Shop, onSelect: () => void, onDelete: (e: React.MouseEvent) => void }) {
+function ShopCard({ shop, onSelect, onDelete, isDeleting }: { shop: Shop, onSelect: () => void, onDelete?: (e: React.MouseEvent) => void, isDeleting?: boolean }) {
     return (
         <div
             onClick={onSelect}
             className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-pink-500 transition-all cursor-pointer group relative overflow-hidden"
         >
-            <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
-                <button
-                    onClick={onDelete}
-                    className="p-2 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg transition-colors"
-                    title="Delete Shop"
-                >
-                    <Trash2 size={16} />
-                </button>
+            <div className={`absolute top-0 right-0 p-4 transition-opacity flex space-x-2 ${isDeleting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                {onDelete && (
+                    <button
+                        onClick={onDelete}
+                        disabled={isDeleting}
+                        className={`p-2 rounded-lg transition-colors ${isDeleting
+                            ? 'bg-red-500/10 text-red-500 cursor-wait'
+                            : 'bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white'
+                            }`}
+                        title="Delete Shop"
+                    >
+                        {isDeleting ? (
+                            <RefreshCw size={16} className="animate-spin" />
+                        ) : (
+                            <Trash2 size={16} />
+                        )}
+                    </button>
+                )}
                 <ExternalLink size={20} className="text-gray-400 group-hover:text-pink-500" />
             </div>
 
@@ -69,7 +82,7 @@ function ShopCard({ shop, onSelect, onDelete }: { shop: Shop, onSelect: () => vo
     );
 }
 
-export function ShopList({ shops, adminAccounts, onSelectShop, onAddShop, onAddAgency, onSyncShops, onDeleteShop, isLoading, isSyncing }: ShopListProps) {
+export function ShopList({ shops, adminAccounts, currentUserId, deletingShopId, onSelectShop, onAddShop, onAddAgency, onSyncShops, onDeleteShop, isLoading, isSyncing }: ShopListProps) {
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -145,11 +158,17 @@ export function ShopList({ shops, adminAccounts, onSelectShop, onAddShop, onAddA
                                     <ShopCard
                                         key={shop.shop_id}
                                         shop={shop}
+                                        isDeleting={deletingShopId === shop.shop_id}
                                         onSelect={() => onSelectShop(shop, account)}
-                                        onDelete={(e) => {
-                                            e.stopPropagation();
-                                            onDeleteShop(shop);
-                                        }}
+                                        onDelete={
+                                            // Only show delete button if current user owns this account
+                                            account.owner_id === currentUserId
+                                                ? (e) => {
+                                                    e.stopPropagation();
+                                                    onDeleteShop(shop);
+                                                }
+                                                : undefined
+                                        }
                                     />
                                 ))}
                             </div>
@@ -162,6 +181,7 @@ export function ShopList({ shops, adminAccounts, onSelectShop, onAddShop, onAddA
                         <ShopCard
                             key={shop.shop_id}
                             shop={shop}
+                            isDeleting={deletingShopId === shop.shop_id}
                             onSelect={() => onSelectShop(shop)}
                             onDelete={(e) => {
                                 e.stopPropagation();

@@ -6,6 +6,7 @@ import { OverviewView } from './views/OverviewView';
 import { ProfitLossView } from './views/ProfitLossView';
 import { OrdersView } from './views/OrdersView';
 import { ProductsView } from './views/ProductsView';
+import { FinanceDebugView } from './views/FinanceDebugView';
 import { AdminDashboard } from './views/AdminDashboard';
 import { AdminUserManagement } from './views/AdminUserManagement';
 import { AdminStoreManagement } from './views/AdminStoreManagement';
@@ -33,6 +34,7 @@ export function Dashboard() {
   const [selectedShop, setSelectedShop] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [deletingShopId, setDeletingShopId] = useState<string | null>(null);
   const isShopLoading = useShopStore(state => state.isLoading);
   const cacheMetadata = useShopStore(state => state.cacheMetadata);
 
@@ -382,6 +384,7 @@ export function Dashboard() {
     }
 
     try {
+      setDeletingShopId(shop.shop_id);
       const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/auth/disconnect/${selectedAccount.id}/${shop.shop_id}`, {
         method: 'DELETE',
       });
@@ -389,6 +392,9 @@ export function Dashboard() {
 
       if (data.success) {
         await queryClient.invalidateQueries({ queryKey: ['shops', selectedAccount.id] });
+        if (profile?.role === 'admin') {
+          await queryClient.invalidateQueries({ queryKey: ['admin-stores-grouped'] });
+        }
         // If the deleted shop was selected, deselect it
         if (selectedShop?.shop_id === shop.shop_id) {
           setSelectedShop(null);
@@ -400,6 +406,8 @@ export function Dashboard() {
     } catch (error: any) {
       console.error('Error deleting shop:', error);
       alert(`Failed to delete shop: ${error.message}`);
+    } finally {
+      setDeletingShopId(null);
     }
   };
 
@@ -536,6 +544,8 @@ export function Dashboard() {
               <ShopList
                 shops={shops}
                 adminAccounts={adminAccounts}
+                currentUserId={user?.id}
+                deletingShopId={deletingShopId}
                 onSelectShop={(shop: any, accountContext?: any) => {
                   const targetAccountId = accountContext?.id || selectedAccount?.id;
 
@@ -582,6 +592,7 @@ export function Dashboard() {
                   case 'orders': return selectedAccount ? <OrdersView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
                   case 'products': return selectedAccount ? <ProductsView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
                   case 'profit-loss': return selectedAccount ? <ProfitLossView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
+                  case 'finance-debug': return selectedAccount ? <FinanceDebugView account={selectedAccount} shopId={selectedShop?.shop_id} /> : null;
                   case 'profile': return <ProfileView />;
                   case 'admin-dashboard': return <AdminDashboard />;
                   case 'admin-users': return <AdminUserManagement />;
