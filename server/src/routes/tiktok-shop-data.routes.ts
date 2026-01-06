@@ -1022,6 +1022,7 @@ async function syncOrders(shop: any) {
 
     } catch (error) {
         console.error(`Error in syncOrders for ${shop.shop_name}:`, error);
+        throw error;
     }
 }
 
@@ -1200,6 +1201,7 @@ async function syncProducts(shop: any) {
 
     } catch (error) {
         console.error(`Error in syncProducts for ${shop.shop_name}:`, error);
+        throw error;
     }
 }
 
@@ -1278,6 +1280,7 @@ async function syncSettlements(shop: any) {
 
     } catch (error) {
         console.error(`Error in syncSettlements for ${shop.shop_name}:`, error);
+        throw error;
     }
 }
 
@@ -1350,6 +1353,7 @@ async function syncPerformance(shop: any) {
 
     } catch (error) {
         console.error(`Error in syncPerformance for ${shop.shop_name}:`, error);
+        throw error;
     }
 }
 
