@@ -451,6 +451,7 @@ export const useShopStore = create<ShopState>((set, get) => ({
         } catch (error: any) {
             console.error('Sync error:', error);
             set({ error: error.message, isLoading: false });
+            throw error; // Re-throw to let caller know
         } finally {
             set(s => ({ cacheMetadata: { ...s.cacheMetadata, isSyncing: false } }));
         }

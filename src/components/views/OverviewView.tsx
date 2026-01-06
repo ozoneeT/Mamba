@@ -5,6 +5,7 @@ import { StatCard } from '../StatCard';
 import { Account } from '../../lib/supabase';
 import { RefreshPrompt } from '../RefreshPrompt';
 import { useShopStore } from '../../store/useShopStore';
+import { DateRangePicker, DateRange } from '../DateRangePicker';
 
 interface OverviewViewProps {
   account: Account;
@@ -12,10 +13,15 @@ interface OverviewViewProps {
   onNavigate?: (tab: string) => void;
 }
 
-
-
-
-
+const getDefaultDateRange = (): DateRange => {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 30);
+  return {
+    startDate: start.toISOString().split('T')[0],
+    endDate: end.toISOString().split('T')[0]
+  };
+};
 
 export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps) {
   const metrics = useShopStore(state => state.metrics);
@@ -31,6 +37,7 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
 
   const [syncing, setSyncing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
 
   // Calculated metrics to match ProfitLossView
   const [calculatedMetrics, setCalculatedMetrics] = useState({
@@ -38,6 +45,8 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
     netProfit: 0,
     grossProfit: 0
   });
+
+  const [completedOrders, setCompletedOrders] = useState(0);
 
   // Update lastUpdated when metrics change
   useEffect(() => {
@@ -49,20 +58,12 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
   // Calculate metrics using P&L logic
   useEffect(() => {
     // Use exact same date range logic as ProfitLossView (UTC midnight)
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - 30);
+    const start = new Date(dateRange.startDate).getTime() / 1000;
+    const end = new Date(dateRange.endDate).getTime() / 1000 + 86400; // End of day
 
-    // Set to UTC midnight
-    const startIso = start.toISOString().split('T')[0];
-    const endIso = end.toISOString().split('T')[0];
-
-    const startTime = new Date(startIso).getTime() / 1000;
-    const endTime = new Date(endIso).getTime() / 1000 + 86400; // End of day
-
-    // Filter for last 30 days
-    const filteredOrders = orders.filter(o => o.created_time >= startTime && o.created_time <= endTime);
-    const filteredStatements = finance.statements.filter(s => s.statement_time >= startTime && s.statement_time <= endTime);
+    // Filter for selected date range
+    const filteredOrders = orders.filter(o => o.created_time >= start && o.created_time <= end);
+    const filteredStatements = finance.statements.filter(s => s.statement_time >= start && s.statement_time <= end);
 
     // Calculate Metrics (Same logic as ProfitLossView)
     const salesRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
@@ -83,7 +84,7 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
     const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
 
     // Calculate Completed Orders
-    const completedOrdersCount = orders.filter(o => o.order_status === 'COMPLETED').length;
+    const completedOrdersCount = filteredOrders.filter(o => o.order_status === 'COMPLETED').length;
 
     setCalculatedMetrics({
       totalRevenue,
@@ -92,19 +93,25 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
     });
 
     setCompletedOrders(completedOrdersCount);
-  }, [orders, finance.statements]);
+  }, [orders, finance.statements, dateRange]);
 
-  const [completedOrders, setCompletedOrders] = useState(0);
-
-  // Removed local fetchShopMetrics as we now rely on the global store
-  // The store is populated by App.tsx on mount
 
   const handleSync = async () => {
-    if (!shopId) return;
+    if (!shopId) {
+      console.error('Sync failed: No shopId provided');
+      return;
+    }
+    console.log('Starting sync for shop:', shopId);
     setSyncing(true);
-    await syncData(account.id, shopId, 'all');
-    setSyncing(false);
-    setLastUpdated(new Date());
+    try {
+      await syncData(account.id, shopId, 'all');
+      console.log('Sync completed successfully');
+    } catch (err) {
+      console.error('Sync failed with error:', err);
+    } finally {
+      setSyncing(false);
+      setLastUpdated(new Date());
+    }
   };
 
   const formatNumber = (num: number): string => {
@@ -117,7 +124,15 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
     return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} `;
   };
 
+  const getDaysDifference = () => {
+    const start = new Date(dateRange.startDate);
+    const end = new Date(dateRange.endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
 
+  const dateRangeSubtitle = `within ${getDaysDifference()} days`;
 
   return (
     <div className="space-y-6">
@@ -182,17 +197,20 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
           </div>
 
           <div className="flex flex-col items-end gap-2">
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className={`flex items - center gap - 2 px - 4 py - 2 rounded - lg text - sm font - medium transition - all ${syncing
-                ? 'bg-gray-700 text-gray-400 cursor-not-allowed items-center space-x-2 px-4 py-2'
-                : 'flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors disabled:opacity-50'
-                } `}
-            >
-              <RefreshCw className={`w - 4 h - 4 mr-2 ${syncing ? 'animate-spin' : ''} `} />
-              {syncing ? 'Syncing...' : 'Sync Now'}
-            </button>
+            <div className="flex items-center gap-2">
+              <DateRangePicker value={dateRange} onChange={setDateRange} />
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className={`flex items - center gap - 2 px - 4 py - 2 rounded - lg text - sm font - medium transition - all ${syncing
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed items-center space-x-2 px-4 py-2'
+                  : 'flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors disabled:opacity-50'
+                  } `}
+              >
+                <RefreshCw className={`w - 4 h - 4 mr-2 ${syncing ? 'animate-spin' : ''} `} />
+                {syncing ? 'Syncing...' : 'Sync Now'}
+              </button>
+            </div>
             {lastUpdated && (
               <p className="text-xs text-gray-500">
                 Updated: {lastUpdated.toLocaleTimeString()}
@@ -212,15 +230,19 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             change={0}
             icon={DollarSign}
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
-            subtitle="Last 30 days (Sales)"
+            subtitle={`${dateRangeSubtitle} (Sales)`}
           />
           <StatCard
             title="Total Orders"
-            value={metrics.totalOrders.toLocaleString()}
+            value={(dateRange.startDate === '2020-01-01' ? metrics.totalOrders : orders.filter(o => {
+              const start = new Date(dateRange.startDate).getTime() / 1000;
+              const end = new Date(dateRange.endDate).getTime() / 1000 + 86400;
+              return o.created_time >= start && o.created_time <= end;
+            }).length).toLocaleString()}
             change={0} // Placeholder, ideally calculated
             icon={ShoppingBag}
             iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
-            subtitle={`${completedOrders} Completed orders`}
+            subtitle={`${completedOrders} Completed ${dateRangeSubtitle}`}
             onClick={() => onNavigate?.('orders')}
           />
           <StatCard
@@ -246,7 +268,7 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             change={0} // Placeholder
             icon={TrendingUp}
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
-            subtitle="Calculated from P&L"
+            subtitle={`Calculated ${dateRangeSubtitle}`}
           />
         </div>
       </div>
