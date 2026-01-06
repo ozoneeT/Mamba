@@ -43,7 +43,8 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
   const [calculatedMetrics, setCalculatedMetrics] = useState({
     totalRevenue: 0,
     netProfit: 0,
-    grossProfit: 0
+    grossProfit: 0,
+    netSales: 0
   });
 
   const [completedOrders, setCompletedOrders] = useState(0);
@@ -65,23 +66,19 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
     const filteredOrders = orders.filter(o => o.created_time >= start && o.created_time <= end);
     const filteredStatements = finance.statements.filter(s => s.statement_time >= start && s.statement_time <= end);
 
-    // Calculate Metrics (Same logic as ProfitLossView)
-    const salesRevenue = filteredOrders.reduce((sum, o) => sum + o.order_amount, 0);
-    const netPayout = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount), 0);
+    // Calculate Metrics using Statements (User Request)
+    // 1. Revenue Amount (Top Line)
+    const totalRevenue = filteredStatements.reduce((sum, s) => sum + parseFloat(s.revenue_amount || '0'), 0);
 
-    // Calculate Unsettled Revenue (Estimated)
-    // Logic: (Total Order Revenue - Settlement Revenue) * 0.85 (estimating 15% platform fees/shipping)
-    const settlementRevenue = filteredStatements.reduce((sum, s) => sum + parseFloat(s.revenue_amount || '0'), 0);
-    const unsettledRevenue = Math.max(0, (salesRevenue - settlementRevenue) * 0.85);
+    // 2. Net Sales Amount (Sales Value)
+    const netSales = filteredStatements.reduce((sum, s) => sum + parseFloat(s.net_sales_amount || '0'), 0);
 
-    const totalRevenue = salesRevenue;
+    // 3. Settlement Amount (Take-Home Pay / Net Profit)
+    const netProfit = filteredStatements.reduce((sum, s) => sum + parseFloat(s.settlement_amount || '0'), 0);
 
-    // Estimates
+    // Estimates for Gross Profit (since we don't have COGS in statements)
     const productCosts = totalRevenue * 0.3; // Estimated 30% COGS
-    const operationalCosts = totalRevenue * 0.1; // Estimated 10% Ops
-
     const grossProfit = totalRevenue - productCosts;
-    const netProfit = (netPayout + unsettledRevenue) - productCosts - operationalCosts;
 
     // Calculate Completed Orders
     const completedOrdersCount = filteredOrders.filter(o => o.order_status === 'COMPLETED').length;
@@ -89,7 +86,8 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
     setCalculatedMetrics({
       totalRevenue,
       netProfit,
-      grossProfit
+      grossProfit,
+      netSales
     });
 
     setCompletedOrders(completedOrdersCount);

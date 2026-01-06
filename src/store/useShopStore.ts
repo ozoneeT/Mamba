@@ -82,7 +82,15 @@ export interface Order {
         shipping_fee?: string;
         tax?: string;
         total_amount?: string;
+        subtotal_before_discount_amount?: string;
+        customer_paid_shipping_fee_amount?: string;
     };
+    revenue_breakdown?: Array<{
+        type: string;
+        amount: string;
+        currency: string;
+        discount_name?: string;
+    }>;
 }
 
 export interface Statement {

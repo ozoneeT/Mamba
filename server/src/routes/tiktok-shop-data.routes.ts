@@ -982,7 +982,8 @@ async function syncOrders(shop: any) {
                     create_time: new Date(Number(order.create_time) * 1000).toISOString(),
                     update_time: new Date(Number(order.update_time) * 1000).toISOString(),
                     line_items: order.line_items,
-                    payment_info: order.payment || order.payment_info,
+                    payment_info: order.payment || order.payment_info, // This should contain subtotal_before_discount_amount etc.
+                    revenue_breakdown: order.payment_info?.revenue_breakdown || [], // Capture revenue breakdown
                     buyer_info: order.buyer_info || {
                         buyer_email: order.buyer_email,
                         buyer_nickname: order.buyer_nickname,
