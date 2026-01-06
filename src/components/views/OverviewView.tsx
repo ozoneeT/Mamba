@@ -25,7 +25,7 @@ const getDefaultDateRange = (): DateRange => {
 
 export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps) {
   const metrics = useShopStore(state => state.metrics);
-  const isLoading = useShopStore(state => state.isLoading);
+
   const error = useShopStore(state => state.error);
   const fetchShopData = useShopStore(state => state.fetchShopData);
   const syncData = useShopStore(state => state.syncData);
@@ -48,6 +48,7 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
   });
 
   const [completedOrders, setCompletedOrders] = useState(0);
+
 
   // Update lastUpdated when metrics change
   useEffect(() => {
@@ -230,19 +231,25 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
             subtitle={`${dateRangeSubtitle} (Sales)`}
           />
-          <StatCard
-            title="Total Orders"
-            value={(dateRange.startDate === '2020-01-01' ? metrics.totalOrders : orders.filter(o => {
+          {(() => {
+            const totalOrdersCount = dateRange.startDate === '2020-01-01' ? metrics.totalOrders : orders.filter(o => {
               const start = new Date(dateRange.startDate).getTime() / 1000;
               const end = new Date(dateRange.endDate).getTime() / 1000 + 86400;
               return o.created_time >= start && o.created_time <= end;
-            }).length).toLocaleString()}
-            change={0} // Placeholder, ideally calculated
-            icon={ShoppingBag}
-            iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
-            subtitle={`${completedOrders} Completed ${dateRangeSubtitle}`}
-            onClick={() => onNavigate?.('orders')}
-          />
+            }).length;
+
+            return (
+              <StatCard
+                title={`Total Orders, ${dateRangeSubtitle}`}
+                value={totalOrdersCount.toLocaleString()}
+                change={0} // Placeholder, ideally calculated
+                icon={ShoppingBag}
+                iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
+                subtitle={`${completedOrders} Completed - ${dateRangeSubtitle}`}
+                onClick={() => onNavigate?.('orders')}
+              />
+            );
+          })()}
           <StatCard
             title="Total Products"
             value={formatNumber(metrics.totalProducts)}
