@@ -17,7 +17,21 @@ export const getShopWithToken = async (accountId: string, shopId?: string, force
         query = query.eq('shop_id', shopId);
     }
 
-    const { data: shops, error } = await query.limit(1).single();
+    let { data: shops, error } = await query.limit(1).single();
+
+    // If not found by shop_id, try by shop_name (frontend sometimes sends shop_name)
+    if ((error || !shops) && shopId) {
+        console.log(`[Data API] Shop not found by shop_id, trying by shop_name: ${shopId}`);
+        const fallbackQuery = supabase
+            .from('tiktok_shops')
+            .select('*')
+            .eq('account_id', accountId)
+            .eq('shop_name', shopId);
+
+        const fallbackResult = await fallbackQuery.limit(1).single();
+        shops = fallbackResult.data;
+        error = fallbackResult.error;
+    }
 
     if (error || !shops) {
         console.error(`[Data API] Shop not found for account ${accountId} and shop ${shopId || 'any'}. Error:`, error?.message);

@@ -51,12 +51,12 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
                         <Package size={48} className="text-gray-600" />
                     </div>
                 )}
-                <div className="absolute top-2 right-2 flex gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
+                <div className="absolute top-2 right-2 flex gap-2 ">
+                    <span className={`px-2 py-1 bg-gray-700/100 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
                         {product.status}
                     </span>
                     {hasMultipleSkus && (
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-pink-900/50 text-pink-400">
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-pink-900/100 text-pink-400">
                             {skus.length} variants
                         </span>
                     )}
