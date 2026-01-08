@@ -319,7 +319,6 @@ router.get('/orders/synced/:accountId', async (req: Request, res: Response) => {
 
         // Get internal Supabase IDs to query shop_orders
         const internalShopIds = shops.map(s => s.id);
-        console.log(`[Orders Synced] Fetching orders for internal shop IDs:`, internalShopIds);
 
         // Paginated fetch to bypass Supabase 1000 row limit
         const BATCH_SIZE = 1000;
@@ -340,15 +339,13 @@ router.get('/orders/synced/:accountId', async (req: Request, res: Response) => {
             if (batch && batch.length > 0) {
                 allOrders = [...allOrders, ...batch];
                 offset += BATCH_SIZE;
-                hasMore = batch.length === BATCH_SIZE; // If we got less than 1000, we're done
-                console.log(`[Orders Synced] Fetched batch: ${batch.length} orders (total: ${allOrders.length})`);
+                hasMore = batch.length === BATCH_SIZE;
             } else {
                 hasMore = false;
             }
         }
 
         const orders = allOrders;
-        console.log(`[Orders Synced] Total orders fetched: ${orders.length}`);
 
         res.json({
             success: true,
@@ -1146,25 +1143,67 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
 // Products are always fully refreshed since they can be updated anytime
 // But we accept isFirstSync for consistency with the API
 async function syncProducts(shop: any, isFirstSync: boolean = true): Promise<{ fetched: number; upserted: number; isIncremental: boolean }> {
+    // Products are always fully refreshed since they can be updated anytime
+    // We accept isFirstSync for consistency but we always fetch all to update stock/price
     const syncMode = isFirstSync ? 'FULL' : 'REFRESH';
     console.log(`[${syncMode}] Syncing products for shop ${shop.shop_name}...`);
     try {
-        const params = {
-            page_size: '50',
-            page_number: 1,
-            status: 'ACTIVATE' // Active products
-        };
+        let allProducts: any[] = [];
+        let page = 1;
+        let hasMore = true;
+        let nextPageToken = '';
 
-        const response = await tiktokShopApi.searchProducts(
-            shop.access_token,
-            shop.shop_cipher,
-            params
-        );
+        while (hasMore) {
+            console.log(`Fetching products page ${page}...`);
+            const params: any = {
+                page_size: '100', // Maximize batch size
+                status: 'ACTIVATE', // Active products
+                sort_field: 'create_time',
+                sort_order: 'DESC' // Newest first
+            };
 
-        const products = response.products || response.product_list || [];
-        console.log(`Found ${products.length} products for shop ${shop.shop_name}`);
+            if (nextPageToken) {
+                params.page_token = nextPageToken;
+            } else {
+                params.page_number = page;
+            }
 
-        if (products.length === 0) {
+            const response = await tiktokShopApi.searchProducts(
+                shop.access_token,
+                shop.shop_cipher,
+                params
+            );
+
+            const products = response.products || response.product_list || [];
+            console.log(`Page ${page} returned ${products.length} products`);
+
+            if (products.length > 0) {
+                allProducts = [...allProducts, ...products];
+            }
+
+            // Check if we need to fetch more
+            // API might return next_page_token or we check count vs total
+            if (response.next_page_token && response.next_page_token !== nextPageToken) {
+                nextPageToken = response.next_page_token;
+                page++;
+            } else if (response.data?.next_page_token && response.data?.next_page_token !== nextPageToken) {
+                // Sometimes response structure varies
+                nextPageToken = response.data.next_page_token;
+                page++;
+            } else if (products.length === 100) {
+                // Fallback: if we got full page, try next page by number if token not used
+                page++;
+            } else {
+                hasMore = false;
+            }
+
+            // Safety break
+            if (page > 50) break;
+        }
+
+        console.log(`Found total ${allProducts.length} products for shop ${shop.shop_name}`);
+
+        if (allProducts.length === 0) {
             return { fetched: 0, upserted: 0, isIncremental: false };
         }
 
@@ -1177,8 +1216,8 @@ async function syncProducts(shop: any, isFirstSync: boolean = true): Promise<{ f
         const shopIds = allShops?.map(s => s.id) || [shop.id];
 
         // Batch upsert products for all associated shop records
-        // Batch upsert products for all associated shop records
-        for (const product of products) {
+        for (const product of allProducts) {
+            // ... processing logic (unchanged inner loop logic below) ...
             // Fetch detailed product info
             let productImages = product.images || [];
             let fullDetails: any = {};
@@ -1319,9 +1358,9 @@ async function syncProducts(shop: any, isFirstSync: boolean = true): Promise<{ f
             })
             .eq('shop_id', shop.shop_id);
 
-        console.log(`✅ Products sync completed for ${shop.shop_name} (${products.length} products)`);
+        console.log(`✅ Products sync completed for ${shop.shop_name} (${allProducts.length} products)`);
 
-        return { fetched: products.length, upserted: products.length, isIncremental: false };
+        return { fetched: allProducts.length, upserted: allProducts.length, isIncremental: false };
 
     } catch (error) {
         console.error(`Error in syncProducts for ${shop.shop_name}:`, error);
@@ -1336,6 +1375,9 @@ async function syncSettlements(shop: any, isFirstSync: boolean = true): Promise<
         const now = Math.floor(Date.now() / 1000);
         let startTime: number;
 
+        // Defined here for scope access
+        let existingSettlementIds = new Set();
+
         if (isFirstSync) {
             // First sync: get last 30 days
             startTime = now - (30 * 24 * 60 * 60);
@@ -1344,37 +1386,94 @@ async function syncSettlements(shop: any, isFirstSync: boolean = true): Promise<
             // Incremental: get latest settlement_time from DB
             const { data: latestSettlement } = await supabase
                 .from('shop_settlements')
-                .select('settlement_time')
+                .select('settlement_id')
                 .eq('shop_id', shop.id)
-                .order('settlement_time', { ascending: false })
-                .limit(1)
-                .single();
+                .order('settlement_time', { ascending: false });
 
-            if (latestSettlement?.settlement_time) {
-                // Subtract 1 hour buffer
-                startTime = Math.floor(new Date(latestSettlement.settlement_time).getTime() / 1000) - 3600;
-                console.log(`[${syncMode}] Fetching settlements after ${latestSettlement.settlement_time}...`);
-            } else {
-                startTime = now - (30 * 24 * 60 * 60);
-            }
+            // We load existing IDs to stop early if we encounter them
+            existingSettlementIds = new Set(latestSettlement?.map(s => s.settlement_id) || []);
+            console.log(`[${syncMode}] Loaded ${existingSettlementIds.size} existing settlement IDs`);
+
+            // Start from 1 year ago just in case, or shorter if we want
+            // But since we have existing check, we can rely on that
+            startTime = now - (365 * 24 * 60 * 60);
         }
 
-        const params = {
-            start_time: startTime,
-            end_time: now,
-            page_size: '20',
-            sort_field: 'statement_time',
-            sort_order: 'DESC'
-        };
+        let allSettlements: any[] = [];
+        let page = 1;
+        let hasMore = true;
+        let nextPageToken = '';
+        let hitExisting = false;
 
-        const response = await tiktokShopApi.getStatements(
-            shop.access_token,
-            shop.shop_cipher,
-            params
-        );
+        while (hasMore) {
+            const params: any = {
+                start_time: startTime,
+                end_time: now,
+                page_size: '100', // Max page size
+                sort_field: 'statement_time',
+                sort_order: 'DESC' // Newest first
+            };
 
-        const settlements = response.statements || response.statement_list || [];
-        console.log(`Found ${settlements.length} settlements for shop ${shop.shop_name}`);
+            if (nextPageToken) {
+                params.page_token = nextPageToken;
+            } else {
+                params.page_number = page;
+            }
+
+            const response = await tiktokShopApi.getStatements(
+                shop.access_token,
+                shop.shop_cipher,
+                params
+            );
+
+            const settlements = response.statements || response.statement_list || [];
+            console.log(`Page ${page} returned ${settlements.length} settlements`);
+
+            if (settlements.length === 0) {
+                if (response.next_page_token && response.next_page_token !== nextPageToken) {
+                    nextPageToken = response.next_page_token;
+                    page++;
+                    continue;
+                }
+                hasMore = false;
+                break;
+            }
+
+            // Check if we hit existing settlements
+            if (!isFirstSync) {
+                // Get existing IDs from DB for this shop 
+                // (Already loaded above as existingSettlementIds)
+
+                for (const stmt of settlements) {
+                    if (existingSettlementIds.has(stmt.id)) {
+                        hitExisting = true;
+                        break;
+                    }
+                    allSettlements.push(stmt);
+                }
+
+                if (hitExisting) {
+                    console.log(`[${syncMode}] Hit existing settlement, stopping early.`);
+                    hasMore = false;
+                    break;
+                }
+            } else {
+                allSettlements = [...allSettlements, ...settlements];
+            }
+
+            if (!response.next_page_token || response.next_page_token === nextPageToken) {
+                hasMore = false;
+            } else {
+                nextPageToken = response.next_page_token;
+                page++;
+            }
+
+            // Safety cap
+            if (page > 50) break;
+        }
+
+        const settlements = allSettlements;
+        console.log(`Found total ${settlements.length} settlements for shop ${shop.shop_name}`);
 
         if (settlements.length === 0) {
             return { fetched: 0, upserted: 0, isIncremental: !isFirstSync };

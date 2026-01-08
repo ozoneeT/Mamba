@@ -127,6 +127,19 @@ interface CacheMetadata {
     lastSyncStats: { orders?: { fetched: number; upserted: number }; products?: { fetched: number }; settlements?: { fetched: number } } | null;
 }
 
+interface SyncProgress {
+    isActive: boolean;
+    isFirstSync: boolean;
+    currentStep: 'idle' | 'orders' | 'products' | 'settlements' | 'complete';
+    message: string;
+    ordersComplete: boolean;
+    productsComplete: boolean;
+    settlementsComplete: boolean;
+    ordersFetched: number;
+    productsFetched: number;
+    settlementsFetched: number;
+}
+
 interface ShopState {
     products: Product[];
     orders: Order[];
@@ -142,6 +155,7 @@ interface ShopState {
     lastFetchTime: number | null;
     lastFetchShopId: string | null;
     cacheMetadata: CacheMetadata;
+    syncProgress: SyncProgress;
 
     // Actions
     fetchShopData: (accountId: string, shopId?: string, options?: { forceRefresh?: boolean; showCached?: boolean; skipSyncCheck?: boolean }) => Promise<void>;
@@ -150,6 +164,7 @@ interface ShopState {
     setMetrics: (metrics: Partial<ShopMetrics>) => void;
     clearData: () => void;
     syncData: (accountId: string, shopId: string, syncType?: 'orders' | 'products' | 'finance' | 'all') => Promise<void>;
+    cancelSync: () => void;
     dismissRefreshPrompt: () => void;
     memoryCache: Record<string, {
         products: Product[];
@@ -199,6 +214,18 @@ export const useShopStore = create<ShopState>((set, get) => ({
         isStale: false,
         isFirstSync: false,
         lastSyncStats: null
+    },
+    syncProgress: {
+        isActive: false,
+        isFirstSync: false,
+        currentStep: 'idle',
+        message: '',
+        ordersComplete: false,
+        productsComplete: false,
+        settlementsComplete: false,
+        ordersFetched: 0,
+        productsFetched: 0,
+        settlementsFetched: 0
     },
     memoryCache: {},
 
@@ -398,8 +425,18 @@ export const useShopStore = create<ShopState>((set, get) => ({
 
             // Step 3: Trigger background sync if stale and not already syncing
             if (shouldSync && shopId && !skipSyncCheck && !get().cacheMetadata.isSyncing) {
-                console.log('[Store] Triggering background sync...');
-                await get().syncData(accountId, shopId, 'all');
+                // Only auto-sync if we have NO data (first time). Otherwise prompt user.
+                const hasData = get().products.length > 0 || get().orders.length > 0;
+
+                if (!hasData) {
+                    console.log('[Store] First time sync (no data) - auto triggering...');
+                    await get().syncData(accountId, shopId, 'all');
+                } else {
+                    console.log('[Store] Data stale but exists - prompting user...');
+                    set(state => ({
+                        cacheMetadata: { ...state.cacheMetadata, showRefreshPrompt: true }
+                    }));
+                }
             }
 
         } catch (error: any) {
@@ -426,55 +463,159 @@ export const useShopStore = create<ShopState>((set, get) => ({
         lastFetchShopId: null
     }),
 
-    syncData: async (accountId: string, shopId: string, syncType = 'all') => {
+    syncData: async (accountId: string, shopId: string, _syncType = 'all') => {
         // Don't set isLoading to true for background syncs if we already have data
         const hasData = get().products.length > 0 || get().orders.length > 0;
+        const isFirstSync = !hasData;
+
+        // Initialize sync progress
         set({
             isLoading: !hasData,
             error: null,
-            cacheMetadata: { ...get().cacheMetadata, isSyncing: true }
+            cacheMetadata: { ...get().cacheMetadata, isSyncing: true },
+            syncProgress: {
+                isActive: true,
+                isFirstSync,
+                currentStep: 'orders',
+                message: isFirstSync
+                    ? '🚀 First time syncing! This may take a few minutes...'
+                    : '📦 Syncing orders...',
+                ordersComplete: false,
+                productsComplete: false,
+                settlementsComplete: false,
+                ordersFetched: 0,
+                productsFetched: 0,
+                settlementsFetched: 0
+            }
         });
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
+            // Step 1: Sync Orders
+            const ordersResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    shopId,
-                    syncType
-                }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shopId, syncType: 'orders' }),
             });
+            const ordersData = await ordersResponse.json();
 
-            const data = await response.json();
+            if (!get().syncProgress.isActive) return; // Stop if cancelled
 
-            if (!data.success) {
-                throw new Error(data.message || 'Sync failed');
-            }
-
-            // Log sync stats for visibility
-            console.log(`[Store] Sync completed. First sync: ${data.isFirstSync}, Stats:`, data.stats);
-
-            // Update cache metadata with sync info
             set(s => ({
-                cacheMetadata: {
-                    ...s.cacheMetadata,
-                    isFirstSync: data.isFirstSync,
-                    lastSyncStats: data.stats
+                syncProgress: {
+                    ...s.syncProgress,
+                    currentStep: 'products',
+                    message: '✅ Orders synced! 🛍️ Syncing products...',
+                    ordersComplete: true,
+                    ordersFetched: ordersData.stats?.orders?.fetched || 0
                 }
             }));
 
-            // Refresh data after sync, but skip the sync check to avoid loop
+            // Step 2: Sync Products
+            const productsResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shopId, syncType: 'products' }),
+            });
+            const productsData = await productsResponse.json();
+
+            if (!get().syncProgress.isActive) return; // Stop if cancelled
+
+            set(s => ({
+                syncProgress: {
+                    ...s.syncProgress,
+                    currentStep: 'settlements',
+                    message: '✅ Products synced! 💰 Syncing financial data...',
+                    productsComplete: true,
+                    productsFetched: productsData.stats?.products?.fetched || 0
+                }
+            }));
+
+            // Step 3: Sync Settlements/Finance
+            const settlementsResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shopId, syncType: 'settlements' }),
+            });
+            const settlementsData = await settlementsResponse.json();
+
+            if (!get().syncProgress.isActive) return; // Stop if cancelled
+
+            // Mark complete
+            set(s => ({
+                syncProgress: {
+                    ...s.syncProgress,
+                    currentStep: 'complete',
+                    message: '✅ All data synced successfully!',
+                    settlementsComplete: true,
+                    settlementsFetched: settlementsData.stats?.settlements?.fetched || 0
+                },
+                cacheMetadata: {
+                    ...s.cacheMetadata,
+                    isFirstSync: ordersData.isFirstSync,
+                    lastSyncStats: {
+                        orders: ordersData.stats?.orders,
+                        products: productsData.stats?.products,
+                        settlements: settlementsData.stats?.settlements
+                    }
+                }
+            }));
+
+            // Final refresh
             await get().fetchShopData(accountId, shopId, { forceRefresh: false, showCached: true, skipSyncCheck: true });
+
+            // Clear progress after 1 seconds
+            setTimeout(() => {
+                set(s => ({
+                    syncProgress: {
+                        ...s.syncProgress,
+                        isActive: false,
+                        message: ''
+                    }
+                }));
+            }, 1000);
 
         } catch (error: any) {
             console.error('Sync error:', error);
-            set({ error: error.message, isLoading: false });
-            throw error; // Re-throw to let caller know
+            set({
+                error: error.message,
+                isLoading: false,
+                syncProgress: {
+                    ...get().syncProgress,
+                    isActive: false,
+                    message: `❌ Sync failed: ${error.message}`
+                }
+            });
+            throw error;
         } finally {
             set(s => ({ cacheMetadata: { ...s.cacheMetadata, isSyncing: false } }));
         }
+    },
+
+    cancelSync: () => {
+        set({
+            syncProgress: {
+                isActive: false,
+                isFirstSync: false,
+                currentStep: 'idle',
+                message: '⏹️ Sync cancelled',
+                ordersComplete: false,
+                productsComplete: false,
+                settlementsComplete: false,
+                ordersFetched: 0,
+                productsFetched: 0,
+                settlementsFetched: 0
+            },
+            cacheMetadata: {
+                ...get().cacheMetadata,
+                isSyncing: false
+            }
+        });
+        // Show cancelled message briefly
+        setTimeout(() => {
+            set(s => ({
+                syncProgress: { ...s.syncProgress, isActive: false, message: '' }
+            }));
+        }, 1500);
     },
 
     dismissRefreshPrompt: () => {

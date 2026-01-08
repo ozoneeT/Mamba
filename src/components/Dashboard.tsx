@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { OverlayLoader } from './OverlayLoader';
-import { SyncIndicator } from './SyncIndicator';
+import { SyncProgressBar } from './SyncProgressBar';
 import { OverviewView } from './views/OverviewView';
 import { ProfitLossView } from './views/ProfitLossView';
 import { OrdersView } from './views/OrdersView';
@@ -603,10 +603,8 @@ export function Dashboard() {
             )}
           </OverlayLoader>
 
-          {/* Global Sync Indicator */}
-          {cacheMetadata.isSyncing && (
-            <SyncIndicator message="Syncing latest data..." />
-          )}
+          {/* Sync Progress Bar */}
+          <SyncProgressBar />
         </div>
       </main>
     </div>
