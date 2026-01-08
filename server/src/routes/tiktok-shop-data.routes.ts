@@ -873,12 +873,13 @@ router.get('/sync/cron', async (req: Request, res: Response) => {
 });
 
 // Helper functions for syncing data
-async function syncOrders(shop: any) {
-    console.log(`Syncing orders for shop ${shop.shop_name}...`);
+// Default to 30 days to avoid timeout issues with large datasets
+async function syncOrders(shop: any, dateRangeDays: number = 30) {
+    console.log(`Syncing orders for shop ${shop.shop_name} (last ${dateRangeDays} days)...`);
     try {
-        // Fetch recent orders (last 1 year to ensure we get everything including sandbox data)
+        // Fetch recent orders based on dateRangeDays parameter
         const now = Math.floor(Date.now() / 1000);
-        const oneYearAgo = now - (365 * 24 * 60 * 60);
+        const startTime = now - (dateRangeDays * 24 * 60 * 60);
 
         let allOrders: any[] = [];
         let nextPageToken = '';
@@ -889,7 +890,7 @@ async function syncOrders(shop: any) {
             console.log(`Fetching orders page ${page}... (Token: ${nextPageToken ? 'Yes' : 'No'})`);
             const params: any = {
                 page_size: '50', // Explicitly string
-                create_time_from: oneYearAgo,
+                create_time_from: startTime,
                 create_time_to: now
             };
 
@@ -939,7 +940,13 @@ async function syncOrders(shop: any) {
 
             page++;
 
-            // Safety break - increased to 100 pages (5000 orders)
+            // Safety break - max 5000 orders per sync to prevent memory issues
+            if (allOrders.length >= 5000) {
+                console.log('Hit safety limit of 5000 orders, stopping.');
+                break;
+            }
+
+            // Also limit pages as fallback
             if (page > 100) {
                 console.log('Hit safety limit of 100 pages, stopping.');
                 break;
@@ -982,8 +989,8 @@ async function syncOrders(shop: any) {
                     create_time: new Date(Number(order.create_time) * 1000).toISOString(),
                     update_time: new Date(Number(order.update_time) * 1000).toISOString(),
                     line_items: order.line_items,
-                    payment_info: order.payment || order.payment_info, // This should contain subtotal_before_discount_amount etc.
-                    revenue_breakdown: order.payment_info?.revenue_breakdown || [], // Capture revenue breakdown
+                    payment_info: order.payment || order.payment_info,
+                    // Note: revenue_breakdown removed - column may not exist in all schemas
                     buyer_info: order.buyer_info || {
                         buyer_email: order.buyer_email,
                         buyer_nickname: order.buyer_nickname,
@@ -1006,7 +1013,11 @@ async function syncOrders(shop: any) {
                         onConflict: 'shop_id,order_id'
                     });
 
-                if (error) console.error('Error upserting orders chunk:', error);
+                if (error) {
+                    console.error(`Error upserting orders chunk (${chunk.length} orders):`, error);
+                    console.error(`First order ID in failed chunk: ${upsertData[0]?.order_id}`);
+                    // Continue with next chunk instead of stopping completely
+                }
             }
         }
 
