@@ -123,6 +123,8 @@ interface CacheMetadata {
     isSyncing: boolean;
     showRefreshPrompt: boolean;
     isStale: boolean;
+    isFirstSync: boolean;
+    lastSyncStats: { orders?: { fetched: number; upserted: number }; products?: { fetched: number }; settlements?: { fetched: number } } | null;
 }
 
 interface ShopState {
@@ -194,7 +196,9 @@ export const useShopStore = create<ShopState>((set, get) => ({
         settlementsLastSynced: null,
         isSyncing: false,
         showRefreshPrompt: false,
-        isStale: false
+        isStale: false,
+        isFirstSync: false,
+        lastSyncStats: null
     },
     memoryCache: {},
 
@@ -381,9 +385,11 @@ export const useShopStore = create<ShopState>((set, get) => ({
                         ordersLastSynced: cacheStatus?.last_synced_times?.orders || null,
                         productsLastSynced: cacheStatus?.last_synced_times?.products || null,
                         settlementsLastSynced: cacheStatus?.last_synced_times?.settlements || null,
-                        isSyncing: get().cacheMetadata.isSyncing, // Keep current syncing state
+                        isSyncing: get().cacheMetadata.isSyncing,
                         showRefreshPrompt: false,
-                        isStale: shouldSync
+                        isStale: shouldSync,
+                        isFirstSync: get().cacheMetadata.isFirstSync,
+                        lastSyncStats: get().cacheMetadata.lastSyncStats
                     }
                 });
 
@@ -446,6 +452,18 @@ export const useShopStore = create<ShopState>((set, get) => ({
             if (!data.success) {
                 throw new Error(data.message || 'Sync failed');
             }
+
+            // Log sync stats for visibility
+            console.log(`[Store] Sync completed. First sync: ${data.isFirstSync}, Stats:`, data.stats);
+
+            // Update cache metadata with sync info
+            set(s => ({
+                cacheMetadata: {
+                    ...s.cacheMetadata,
+                    isFirstSync: data.isFirstSync,
+                    lastSyncStats: data.stats
+                }
+            }));
 
             // Refresh data after sync, but skip the sync check to avoid loop
             await get().fetchShopData(accountId, shopId, { forceRefresh: false, showCached: true, skipSyncCheck: true });

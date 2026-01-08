@@ -773,6 +773,7 @@ router.get('/products/synced/:accountId', async (req: Request, res: Response) =>
 /**
  * POST /api/tiktok-shop/sync/:accountId
  * Trigger data synchronization
+ * Supports incremental sync - only fetches new data if shop has been synced before
  */
 router.post('/sync/:accountId', async (req: Request, res: Response) => {
     try {
@@ -781,30 +782,44 @@ router.post('/sync/:accountId', async (req: Request, res: Response) => {
 
         const shop = await getShopWithToken(accountId, shopId);
 
+        // Detect if this is a first-time sync by checking if shop has any orders
+        const { count: existingOrdersCount } = await supabase
+            .from('shop_orders')
+            .select('*', { count: 'exact', head: true })
+            .eq('shop_id', shop.id);
+
+        const isFirstSync = (existingOrdersCount || 0) === 0;
+
+        if (isFirstSync) {
+            console.log(`[Sync] First-time sync detected for ${shop.shop_name} - will fetch all data`);
+        } else {
+            console.log(`[Sync] Incremental sync for ${shop.shop_name} - will fetch only new data`);
+        }
+
         // Fetch and store data based on syncType
-        const syncPromises = [];
+        const syncResults: { orders?: any; products?: any; settlements?: any; performance?: any } = {};
 
         if (syncType === 'all' || syncType === 'orders') {
-            syncPromises.push(syncOrders(shop));
+            syncResults.orders = await syncOrders(shop, isFirstSync);
         }
 
         if (syncType === 'all' || syncType === 'products') {
-            syncPromises.push(syncProducts(shop));
+            syncResults.products = await syncProducts(shop, isFirstSync);
         }
 
         if (syncType === 'all' || syncType === 'settlements' || syncType === 'finance') {
-            syncPromises.push(syncSettlements(shop));
+            syncResults.settlements = await syncSettlements(shop, isFirstSync);
         }
 
         if (syncType === 'all') {
-            syncPromises.push(syncPerformance(shop));
+            syncResults.performance = await syncPerformance(shop);
         }
-
-        await Promise.all(syncPromises);
 
         res.json({
             success: true,
-            message: 'Data synchronization completed',
+            message: isFirstSync ? 'Initial sync completed' : 'Incremental sync completed',
+            isFirstSync,
+            stats: syncResults
         });
     } catch (error: any) {
         console.error('Error syncing data:', error);
@@ -887,13 +902,39 @@ router.get('/sync/cron', async (req: Request, res: Response) => {
 });
 
 // Helper functions for syncing data
-// Default to 30 days to avoid timeout issues with large datasets
-async function syncOrders(shop: any, dateRangeDays: number = 30) {
-    console.log(`Syncing orders for shop ${shop.shop_name} (last ${dateRangeDays} days)...`);
+// Supports incremental sync - only fetches new/updated orders if not first sync
+async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fetched: number; upserted: number; isIncremental: boolean }> {
+    const syncMode = isFirstSync ? 'FULL' : 'INCREMENTAL';
+    console.log(`[${syncMode}] Syncing orders for shop ${shop.shop_name}...`);
+
     try {
-        // Fetch recent orders based on dateRangeDays parameter
         const now = Math.floor(Date.now() / 1000);
-        const startTime = now - (dateRangeDays * 24 * 60 * 60);
+        let startTime: number;
+
+        if (isFirstSync) {
+            // First sync: get last 30 days
+            startTime = now - (30 * 24 * 60 * 60);
+            console.log(`[${syncMode}] Fetching orders from last 30 days...`);
+        } else {
+            // Incremental: get latest update_time from DB and fetch only newer orders
+            const { data: latestOrder } = await supabase
+                .from('shop_orders')
+                .select('update_time')
+                .eq('shop_id', shop.id)
+                .order('update_time', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (latestOrder?.update_time) {
+                // Subtract 1 hour buffer to catch any edge cases
+                startTime = Math.floor(new Date(latestOrder.update_time).getTime() / 1000) - 3600;
+                console.log(`[${syncMode}] Fetching orders updated after ${latestOrder.update_time}...`);
+            } else {
+                // Fallback to 30 days if no data found
+                startTime = now - (30 * 24 * 60 * 60);
+                console.log(`[${syncMode}] No existing orders found, falling back to 30 days`);
+            }
+        }
 
         let allOrders: any[] = [];
         let nextPageToken = '';
@@ -903,10 +944,15 @@ async function syncOrders(shop: any, dateRangeDays: number = 30) {
         while (hasMore) {
             console.log(`Fetching orders page ${page}... (Token: ${nextPageToken ? 'Yes' : 'No'})`);
             const params: any = {
-                page_size: '50', // Explicitly string
-                create_time_from: startTime,
+                page_size: '50',
+                // Use update_time for incremental to catch status changes
+                update_time_from: isFirstSync ? undefined : startTime,
+                create_time_from: isFirstSync ? startTime : undefined,
                 create_time_to: now
             };
+
+            // Remove undefined params
+            Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
 
             if (nextPageToken) {
                 params.page_token = nextPageToken;
@@ -954,22 +1000,18 @@ async function syncOrders(shop: any, dateRangeDays: number = 30) {
 
             page++;
 
-            // Safety break - max 5000 orders per sync to prevent memory issues
-            if (allOrders.length >= 5000) {
-                console.log('Hit safety limit of 5000 orders, stopping.');
-                break;
-            }
-
-            // Also limit pages as fallback
-            if (page > 100) {
-                console.log('Hit safety limit of 100 pages, stopping.');
+            // Safety limit on pages only (very large shops may have 500+ pages)
+            if (page > 500) {
+                console.log('Hit safety limit of 500 pages (25,000+ orders), stopping.');
                 break;
             }
         }
 
         console.log(`Found total ${allOrders.length} orders for shop ${shop.shop_name}`);
 
-        if (allOrders.length === 0) return;
+        if (allOrders.length === 0) {
+            return { fetched: 0, upserted: 0, isIncremental: !isFirstSync };
+        }
 
         // Deduplicate orders by ID
         const uniqueOrdersMap = new Map();
@@ -1044,7 +1086,9 @@ async function syncOrders(shop: any, dateRangeDays: number = 30) {
             })
             .eq('shop_id', shop.shop_id);
 
-        console.log(`✅ Orders sync completed for ${shop.shop_name}`);
+        console.log(`✅ Orders sync completed for ${shop.shop_name} (${uniqueOrders.length} orders)`);
+
+        return { fetched: allOrders.length, upserted: uniqueOrders.length, isIncremental: !isFirstSync };
 
     } catch (error) {
         console.error(`Error in syncOrders for ${shop.shop_name}:`, error);
@@ -1052,8 +1096,11 @@ async function syncOrders(shop: any, dateRangeDays: number = 30) {
     }
 }
 
-async function syncProducts(shop: any) {
-    console.log(`Syncing products for shop ${shop.shop_name}...`);
+// Products are always fully refreshed since they can be updated anytime
+// But we accept isFirstSync for consistency with the API
+async function syncProducts(shop: any, isFirstSync: boolean = true): Promise<{ fetched: number; upserted: number; isIncremental: boolean }> {
+    const syncMode = isFirstSync ? 'FULL' : 'REFRESH';
+    console.log(`[${syncMode}] Syncing products for shop ${shop.shop_name}...`);
     try {
         const params = {
             page_size: '50',
@@ -1070,7 +1117,9 @@ async function syncProducts(shop: any) {
         const products = response.products || response.product_list || [];
         console.log(`Found ${products.length} products for shop ${shop.shop_name}`);
 
-        if (products.length === 0) return;
+        if (products.length === 0) {
+            return { fetched: 0, upserted: 0, isIncremental: false };
+        }
 
         // Find all records for this shop_id to update them all
         const { data: allShops } = await supabase
@@ -1223,7 +1272,9 @@ async function syncProducts(shop: any) {
             })
             .eq('shop_id', shop.shop_id);
 
-        console.log(`✅ Products sync completed for ${shop.shop_name}`);
+        console.log(`✅ Products sync completed for ${shop.shop_name} (${products.length} products)`);
+
+        return { fetched: products.length, upserted: products.length, isIncremental: false };
 
     } catch (error) {
         console.error(`Error in syncProducts for ${shop.shop_name}:`, error);
@@ -1231,16 +1282,40 @@ async function syncProducts(shop: any) {
     }
 }
 
-async function syncSettlements(shop: any) {
-    console.log(`Syncing settlements for shop ${shop.shop_name}...`);
+async function syncSettlements(shop: any, isFirstSync: boolean = true): Promise<{ fetched: number; upserted: number; isIncremental: boolean }> {
+    const syncMode = isFirstSync ? 'FULL' : 'INCREMENTAL';
+    console.log(`[${syncMode}] Syncing settlements for shop ${shop.shop_name}...`);
     try {
         const now = Math.floor(Date.now() / 1000);
-        const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
+        let startTime: number;
+
+        if (isFirstSync) {
+            // First sync: get last 30 days
+            startTime = now - (30 * 24 * 60 * 60);
+            console.log(`[${syncMode}] Fetching settlements from last 30 days...`);
+        } else {
+            // Incremental: get latest settlement_time from DB
+            const { data: latestSettlement } = await supabase
+                .from('shop_settlements')
+                .select('settlement_time')
+                .eq('shop_id', shop.id)
+                .order('settlement_time', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (latestSettlement?.settlement_time) {
+                // Subtract 1 hour buffer
+                startTime = Math.floor(new Date(latestSettlement.settlement_time).getTime() / 1000) - 3600;
+                console.log(`[${syncMode}] Fetching settlements after ${latestSettlement.settlement_time}...`);
+            } else {
+                startTime = now - (30 * 24 * 60 * 60);
+            }
+        }
 
         const params = {
-            start_time: thirtyDaysAgo,
+            start_time: startTime,
             end_time: now,
-            page_size: '20', // Explicitly string
+            page_size: '20',
             sort_field: 'statement_time',
             sort_order: 'DESC'
         };
@@ -1254,7 +1329,9 @@ async function syncSettlements(shop: any) {
         const settlements = response.statements || response.statement_list || [];
         console.log(`Found ${settlements.length} settlements for shop ${shop.shop_name}`);
 
-        if (settlements.length === 0) return;
+        if (settlements.length === 0) {
+            return { fetched: 0, upserted: 0, isIncremental: !isFirstSync };
+        }
 
         // Find all records for this shop_id to update them all
         const { data: allShops } = await supabase
@@ -1302,7 +1379,9 @@ async function syncSettlements(shop: any) {
             })
             .eq('shop_id', shop.shop_id);
 
-        console.log(`✅ Settlements sync completed for ${shop.shop_name}`);
+        console.log(`✅ Settlements sync completed for ${shop.shop_name} (${settlements.length} settlements)`);
+
+        return { fetched: settlements.length, upserted: settlements.length, isIncremental: !isFirstSync };
 
     } catch (error) {
         console.error(`Error in syncSettlements for ${shop.shop_name}:`, error);
