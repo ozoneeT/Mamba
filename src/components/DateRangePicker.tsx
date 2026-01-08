@@ -93,11 +93,14 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
       }
     },
     {
-      label: 'All Time',
+      label: '1 Year',
       getValue: () => {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 365);
         return {
-          startDate: '2020-01-01',
-          endDate: new Date().toISOString().split('T')[0]
+          startDate: start.toISOString().split('T')[0],
+          endDate: end.toISOString().split('T')[0]
         };
       }
     }

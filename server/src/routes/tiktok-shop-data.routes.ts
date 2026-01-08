@@ -321,14 +321,34 @@ router.get('/orders/synced/:accountId', async (req: Request, res: Response) => {
         const internalShopIds = shops.map(s => s.id);
         console.log(`[Orders Synced] Fetching orders for internal shop IDs:`, internalShopIds);
 
-        const { data: orders, error } = await supabase
-            .from('shop_orders')
-            .select('*')
-            .in('shop_id', internalShopIds)
-            .order('create_time', { ascending: false })
-            .range(0, 49999); // Override Supabase default 1000 limit
+        // Paginated fetch to bypass Supabase 1000 row limit
+        const BATCH_SIZE = 1000;
+        let allOrders: any[] = [];
+        let offset = 0;
+        let hasMore = true;
 
-        if (error) throw error;
+        while (hasMore) {
+            const { data: batch, error } = await supabase
+                .from('shop_orders')
+                .select('*')
+                .in('shop_id', internalShopIds)
+                .order('create_time', { ascending: false })
+                .range(offset, offset + BATCH_SIZE - 1);
+
+            if (error) throw error;
+
+            if (batch && batch.length > 0) {
+                allOrders = [...allOrders, ...batch];
+                offset += BATCH_SIZE;
+                hasMore = batch.length === BATCH_SIZE; // If we got less than 1000, we're done
+                console.log(`[Orders Synced] Fetched batch: ${batch.length} orders (total: ${allOrders.length})`);
+            } else {
+                hasMore = false;
+            }
+        }
+
+        const orders = allOrders;
+        console.log(`[Orders Synced] Total orders fetched: ${orders.length}`);
 
         res.json({
             success: true,
