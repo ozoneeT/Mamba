@@ -162,7 +162,8 @@ router.get('/stores', async (req, res) => {
                 .select('shop_id, total_amount, create_time')
                 .in('shop_id', shopIds)
                 .gte('create_time', startIso)
-                .lte('create_time', endIso);
+                .lte('create_time', endIso)
+                .range(0, 49999); // Override default 1000 limit
 
             if (ordersError) console.error('Error fetching recent orders:', ordersError);
 
@@ -300,7 +301,7 @@ router.get('/stores/:shopId/pl', async (req, res) => {
                 .lte('create_time', endDate);
         }
 
-        const { data: orders } = await ordersQuery;
+        const { data: orders } = await ordersQuery.range(0, 49999); // Override default 1000 limit
 
         // 2. Calculate P&L metrics (Matching ProfitLossView logic and TikTok API fields)
         const totalRevenue = orders?.reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0) || 0;

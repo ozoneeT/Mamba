@@ -325,7 +325,8 @@ router.get('/orders/synced/:accountId', async (req: Request, res: Response) => {
             .from('shop_orders')
             .select('*')
             .in('shop_id', internalShopIds)
-            .order('create_time', { ascending: false });
+            .order('create_time', { ascending: false })
+            .range(0, 49999); // Override Supabase default 1000 limit
 
         if (error) throw error;
 
@@ -912,27 +913,28 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
         let startTime: number;
 
         if (isFirstSync) {
-            // First sync: get last 30 days
-            startTime = now - (30 * 24 * 60 * 60);
-            console.log(`[${syncMode}] Fetching orders from last 30 days...`);
+            // First sync: get last 365 days (1 year) to capture full historical data
+            startTime = now - (365 * 24 * 60 * 60);
+            console.log(`[${syncMode}] Fetching orders from last 365 days (1 year)...`);
         } else {
-            // Incremental: get latest update_time from DB and fetch only newer orders
+            // Incremental: get latest CREATE_TIME from DB and fetch only NEWER orders
+            // This is key - we use create_time not update_time to avoid re-fetching all orders
             const { data: latestOrder } = await supabase
                 .from('shop_orders')
-                .select('update_time')
+                .select('create_time')
                 .eq('shop_id', shop.id)
-                .order('update_time', { ascending: false })
+                .order('create_time', { ascending: false })
                 .limit(1)
                 .single();
 
-            if (latestOrder?.update_time) {
-                // Subtract 1 hour buffer to catch any edge cases
-                startTime = Math.floor(new Date(latestOrder.update_time).getTime() / 1000) - 3600;
-                console.log(`[${syncMode}] Fetching orders updated after ${latestOrder.update_time}...`);
+            if (latestOrder?.create_time) {
+                // Use exact timestamp - only fetch orders CREATED after our latest
+                startTime = Math.floor(new Date(latestOrder.create_time).getTime() / 1000);
+                console.log(`[${syncMode}] Fetching orders CREATED after ${latestOrder.create_time}...`);
             } else {
-                // Fallback to 30 days if no data found
-                startTime = now - (30 * 24 * 60 * 60);
-                console.log(`[${syncMode}] No existing orders found, falling back to 30 days`);
+                // Fallback to 7 days if no data found
+                startTime = now - (7 * 24 * 60 * 60);
+                console.log(`[${syncMode}] No existing orders found, falling back to 7 days`);
             }
         }
 
@@ -940,19 +942,31 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
         let nextPageToken = '';
         let hasMore = true;
         let page = 1;
+        let hitExistingOrder = false;
+
+        // For incremental sync, get existing order IDs to detect when we can stop
+        let existingOrderIds = new Set<string>();
+        if (!isFirstSync) {
+            const { data: existingOrders } = await supabase
+                .from('shop_orders')
+                .select('order_id')
+                .eq('shop_id', shop.id);
+            if (existingOrders) {
+                existingOrderIds = new Set(existingOrders.map(o => o.order_id));
+            }
+            console.log(`[${syncMode}] Loaded ${existingOrderIds.size} existing order IDs for comparison`);
+        }
 
         while (hasMore) {
             console.log(`Fetching orders page ${page}... (Token: ${nextPageToken ? 'Yes' : 'No'})`);
             const params: any = {
-                page_size: '50',
-                // Use update_time for incremental to catch status changes
-                update_time_from: isFirstSync ? undefined : startTime,
-                create_time_from: isFirstSync ? startTime : undefined,
-                create_time_to: now
+                page_size: '100', // Maximum allowed by API
+                create_time_from: startTime,
+                create_time_to: now,
+                // KEY OPTIMIZATION: Sort by create_time DESC to get NEWEST orders first
+                sort_field: 'create_time',
+                sort_order: 'DESC'
             };
-
-            // Remove undefined params
-            Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
 
             if (nextPageToken) {
                 params.page_token = nextPageToken;
@@ -975,18 +989,32 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
                 break;
             }
 
-            // Check if we've already seen these orders (API returning duplicate pages)
-            const firstOrderId = orders[0]?.id || orders[0]?.order_id;
-            const isDuplicatePage = allOrders.some(o => (o.id || o.order_id) === firstOrderId);
+            // For incremental sync: check if we hit orders that already exist in DB
+            // Since we're sorting DESC (newest first), once we hit existing orders, we can stop
+            if (!isFirstSync && existingOrderIds.size > 0) {
+                let newOrdersInPage = 0;
+                for (const order of orders) {
+                    const orderId = order.id || order.order_id;
+                    if (existingOrderIds.has(orderId)) {
+                        // Found an existing order - we've caught up!
+                        hitExistingOrder = true;
+                        console.log(`[${syncMode}] Hit existing order ${orderId}, we've caught up with our data!`);
+                        break;
+                    }
+                    allOrders.push(order);
+                    newOrdersInPage++;
+                }
+                console.log(`[${syncMode}] Found ${newOrdersInPage} new orders in page ${page}`);
 
-            if (isDuplicatePage) {
-                console.log(`Detected duplicate page from API (Order ID ${firstOrderId} already exists), stopping sync.`);
-                console.log('This usually means the API ignored the page_token and returned the first page again.');
-                hasMore = false;
-                break;
+                if (hitExistingOrder) {
+                    console.log(`[${syncMode}] Stopping early - already have remaining orders in DB`);
+                    hasMore = false;
+                    break;
+                }
+            } else {
+                // First sync: add all orders (no duplicate checking needed)
+                allOrders = [...allOrders, ...orders];
             }
-
-            allOrders = [...allOrders, ...orders];
 
             // If no new token or same token, stop
             if (!response.next_page_token || response.next_page_token === nextPageToken) {
@@ -994,15 +1022,14 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
                 hasMore = false;
             } else {
                 nextPageToken = response.next_page_token;
-                // TRUST THE TOKEN: If we have a token, we have more, even if page < 50
                 hasMore = true;
             }
 
             page++;
 
-            // Safety limit on pages only (very large shops may have 500+ pages)
+            // Safety limit on pages (500 pages x 100 = 50,000 orders max)
             if (page > 500) {
-                console.log('Hit safety limit of 500 pages (25,000+ orders), stopping.');
+                console.log('Hit safety limit of 500 pages (50,000+ orders), stopping.');
                 break;
             }
         }
