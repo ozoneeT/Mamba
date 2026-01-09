@@ -35,7 +35,6 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
   const orders = useShopStore(state => state.orders);
   const finance = useShopStore(state => state.finance);
 
-  const [syncing, setSyncing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
 
@@ -101,15 +100,12 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
       return;
     }
     console.log('Starting sync for shop:', shopId);
-    setSyncing(true);
     try {
       await syncData(account.id, shopId, 'all');
       console.log('Sync completed successfully');
+      setLastUpdated(new Date());
     } catch (err) {
       console.error('Sync failed with error:', err);
-    } finally {
-      setSyncing(false);
-      setLastUpdated(new Date());
     }
   };
 
@@ -200,14 +196,14 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
               <DateRangePicker value={dateRange} onChange={setDateRange} />
               <button
                 onClick={handleSync}
-                disabled={syncing}
-                className={`flex items - center gap - 2 px - 4 py - 2 rounded - lg text - sm font - medium transition - all ${syncing
+                disabled={cacheMetadata.isSyncing}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${cacheMetadata.isSyncing
                   ? 'bg-gray-700 text-gray-400 cursor-not-allowed items-center space-x-2 px-4 py-2'
                   : 'flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors disabled:opacity-50'
                   } `}
               >
-                <RefreshCw className={`w - 4 h - 4 mr-2 ${syncing ? 'animate-spin' : ''} `} />
-                {syncing ? 'Syncing...' : 'Sync Now'}
+                <RefreshCw className={`w-4 h-4 mr-2 ${cacheMetadata.isSyncing ? 'animate-spin' : ''} `} />
+                {cacheMetadata.isSyncing ? 'Syncing...' : 'Sync Now'}
               </button>
             </div>
             {lastUpdated && (
@@ -230,6 +226,8 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             icon={DollarSign}
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
             subtitle={`${dateRangeSubtitle} (Sales)`}
+            onSync={() => syncData(account.id, shopId!, 'finance')}
+            isSyncing={cacheMetadata.isSyncing}
           />
           {(() => {
             const totalOrdersCount = dateRange.startDate === '2020-01-01' ? metrics.totalOrders : orders.filter(o => {
@@ -247,6 +245,8 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
                 iconColor="bg-gradient-to-r from-blue-500 to-cyan-500"
                 subtitle={`${completedOrders} Completed - ${dateRangeSubtitle}`}
                 onClick={() => onNavigate?.('orders')}
+                onSync={() => syncData(account.id, shopId!, 'orders')}
+                isSyncing={cacheMetadata.isSyncing}
               />
             );
           })()}
@@ -258,6 +258,8 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             iconColor="bg-gradient-to-r from-purple-500 to-pink-500"
             subtitle="Active listings"
             onClick={() => onNavigate?.('products')}
+            onSync={() => syncData(account.id, shopId!, 'products')}
+            isSyncing={cacheMetadata.isSyncing}
           />
           <StatCard
             title="Avg. Order Value"
@@ -274,6 +276,8 @@ export function OverviewView({ account, shopId, onNavigate }: OverviewViewProps)
             icon={TrendingUp}
             iconColor="bg-gradient-to-r from-green-500 to-emerald-500"
             subtitle={`Calculated ${dateRangeSubtitle}`}
+            onSync={() => syncData(account.id, shopId!, 'finance')}
+            isSyncing={cacheMetadata.isSyncing}
           />
         </div>
       </div>

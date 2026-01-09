@@ -11,20 +11,17 @@ interface OrdersViewProps {
 }
 
 export function OrdersView({ account, shopId }: OrdersViewProps) {
-    const { orders, isLoading, fetchShopData, syncData } = useShopStore();
+    const { orders, isLoading, syncData, cacheMetadata } = useShopStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-    const [isSyncing, setIsSyncing] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 50;
 
     const handleSync = async () => {
         if (!shopId) return;
-        setIsSyncing(true);
         await syncData(account.id, shopId, 'orders');
-        setIsSyncing(false);
     };
 
     const filteredOrders = orders.filter(order => {
@@ -57,11 +54,11 @@ export function OrdersView({ account, shopId }: OrdersViewProps) {
                 </div>
                 <button
                     onClick={handleSync}
-                    disabled={isSyncing || isLoading}
+                    disabled={cacheMetadata.isSyncing || isLoading}
                     className="flex items-center space-x-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
-                    <RefreshCw size={20} className={isSyncing ? "animate-spin" : ""} />
-                    <span>{isSyncing ? 'Syncing...' : 'Sync Orders'}</span>
+                    <RefreshCw size={20} className={cacheMetadata.isSyncing ? "animate-spin" : ""} />
+                    <span>{cacheMetadata.isSyncing ? 'Syncing...' : 'Sync Orders'}</span>
                 </button>
             </div>
 

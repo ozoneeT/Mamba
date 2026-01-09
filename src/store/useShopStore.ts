@@ -125,6 +125,7 @@ interface CacheMetadata {
     isStale: boolean;
     isFirstSync: boolean;
     lastSyncStats: { orders?: { fetched: number; upserted: number }; products?: { fetched: number }; settlements?: { fetched: number } } | null;
+    lastPromptDismissedAt: number | null; // Track when user dismissed prompt to avoid re-prompting
 }
 
 interface SyncProgress {
@@ -213,7 +214,8 @@ export const useShopStore = create<ShopState>((set, get) => ({
         showRefreshPrompt: false,
         isStale: false,
         isFirstSync: false,
-        lastSyncStats: null
+        lastSyncStats: null,
+        lastPromptDismissedAt: null
     },
     syncProgress: {
         isActive: false,
@@ -261,8 +263,11 @@ export const useShopStore = create<ShopState>((set, get) => ({
                 console.log(`[Store] Cache hit for ${shopId}, loading from memory...`);
                 const cached = state.memoryCache[shopId];
 
-                // Check if memory cache is stale (> 30 mins)
-                const isMemoryStale = !cached.lastFetchTime || (Date.now() - cached.lastFetchTime > 30 * 60 * 1000);
+                // Tiered staleness check
+                const cacheAge = cached.lastFetchTime ? Date.now() - cached.lastFetchTime : Infinity;
+                const isFresh = cacheAge < 5 * 60 * 1000; // <5 min = very fresh
+                const isModeratelyStale = cacheAge >= 5 * 60 * 1000 && cacheAge < 30 * 60 * 1000; // 5-30 min
+                const isStale = cacheAge >= 30 * 60 * 1000; // >30 min
 
                 set({
                     products: cached.products,
@@ -276,13 +281,37 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     error: null
                 });
 
-                if (!isMemoryStale) {
-                    console.log(`[Store] Memory cache is fresh (< 30 mins), skipping network fetch.`);
+                if (isFresh) {
+                    // Very fresh cache - skip all network requests
+                    console.log(`[Store] Memory cache is very fresh (<5 min), skipping all network requests.`);
                     return;
                 }
-                console.log(`[Store] Memory cache is stale (> 30 mins), proceeding to check DB/Sync.`);
+
+                if (isModeratelyStale) {
+                    // Moderately stale - skip DB fetch, but check sync status in background
+                    console.log(`[Store] Memory cache is moderately stale (5-30 min), skipping DB fetch.`);
+                    return;
+                }
+
+                if (isStale && !skipSyncCheck) {
+                    // Stale cache - show prompt but DON'T re-fetch from Supabase
+                    // Data is already loaded from memory cache above
+                    console.log(`[Store] Memory cache is stale (>30 min), showing refresh prompt.`);
+                    const lastDismissed = state.cacheMetadata.lastPromptDismissedAt;
+                    const shouldShowPrompt = !lastDismissed || (Date.now() - lastDismissed > 30 * 60 * 1000);
+
+                    if (shouldShowPrompt) {
+                        set(s => ({
+                            cacheMetadata: { ...s.cacheMetadata, showRefreshPrompt: true, isStale: true }
+                        }));
+                    }
+                    return; // Don't fetch from DB, we already have memory cache data
+                }
+
+                return; // Default: use cached data
             } else {
-                console.log('[Store] Shop changed, clearing old data...');
+                // No memory cache - need to load from DB
+                console.log('[Store] No memory cache, will load from DB...');
                 set({
                     products: [],
                     orders: [],
@@ -298,7 +327,7 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     finance: { statements: [], payments: [], withdrawals: [], unsettledOrders: [] },
                     error: null,
                     lastFetchShopId: shopId,
-                    isLoading: true, // Only show loader if no memory cache
+                    isLoading: true, // Show loader when loading from DB
                     cacheMetadata: {
                         ...state.cacheMetadata,
                         shopId,
@@ -311,11 +340,11 @@ export const useShopStore = create<ShopState>((set, get) => ({
         }
 
         try {
-            // Step 1: Check cache status
+            // Step 1: Check cache status (skip if we just synced)
             let cacheStatus: any = null;
             let shouldSync = false;
 
-            if (shopId) {
+            if (shopId && !skipSyncCheck) {
                 console.log('[Store] Checking cache status...');
                 const cacheStatusUrl = `${API_BASE_URL}/api/tiktok-shop/cache-status/${accountId}?shopId=${shopId}`;
                 const cacheResponse = await fetch(cacheStatusUrl);
@@ -327,22 +356,23 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     shouldSync = cacheStatus.should_prompt_user || forceRefresh;
                     console.log(`[Store] Cache status - Should Sync: ${shouldSync}`);
                 }
+            } else if (skipSyncCheck) {
+                console.log('[Store] Skipping cache status check (post-sync refresh)');
             }
 
             // Step 2: Load cached data from DB if available
             if (showCached && shopId) {
                 console.log('[Store] Loading cached data from DB...');
 
+                // Only fetch products, orders, settlements - NO overview API (calculate metrics locally)
                 const productsUrl = `${API_BASE_URL}/api/tiktok-shop/products/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
                 const ordersUrl = `${API_BASE_URL}/api/tiktok-shop/orders/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
                 const settlementsUrl = `${API_BASE_URL}/api/tiktok-shop/settlements/synced/${accountId}${shopId ? `?shopId=${shopId}` : ''}`;
-                const overviewUrl = `${API_BASE_URL}/api/tiktok-shop/overview/${accountId}?shopId=${shopId}&refresh=false`;
 
-                const [productsResult, ordersResult, settlementsResult, overviewResult] = await Promise.all([
+                const [productsResult, ordersResult, settlementsResult] = await Promise.all([
                     fetch(productsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message })),
                     fetch(ordersUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message })),
-                    fetch(settlementsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message })),
-                    fetch(overviewUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }))
+                    fetch(settlementsUrl).then(r => r.json()).catch(e => ({ success: false, error: e.message }))
                 ]);
 
                 const products: Product[] = (productsResult.data?.products || []).map((p: any) => ({
@@ -386,11 +416,19 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     shipping_fee: s.shipping_fee?.toString() || '0',
                     net_sales_amount: s.net_sales_amount?.toString() || '0'
                 })) : [];
-                const metrics: ShopMetrics = overviewResult.success ? {
-                    ...overviewResult.data.metrics,
-                    conversionRate: overviewResult.data.metrics.conversionRate || 0,
-                    shopRating: overviewResult.data.metrics.shopRating || 0
-                } : state.metrics;
+
+                // Calculate metrics locally - no need for separate overview API call
+                const totalRevenue = orders.reduce((sum, o) => sum + o.order_amount, 0);
+                const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
+                const metrics: ShopMetrics = {
+                    totalOrders: orders.length,
+                    totalRevenue,
+                    totalProducts: products.length,
+                    totalNet: statements.reduce((sum, s) => sum + parseFloat(s.settlement_amount || '0'), 0),
+                    avgOrderValue,
+                    conversionRate: state.metrics.conversionRate || 0,
+                    shopRating: state.metrics.shopRating || 0
+                };
 
                 set({
                     products: products.length > 0 ? products : get().products,
@@ -416,7 +454,8 @@ export const useShopStore = create<ShopState>((set, get) => ({
                         showRefreshPrompt: false,
                         isStale: shouldSync,
                         isFirstSync: get().cacheMetadata.isFirstSync,
-                        lastSyncStats: get().cacheMetadata.lastSyncStats
+                        lastSyncStats: get().cacheMetadata.lastSyncStats,
+                        lastPromptDismissedAt: get().cacheMetadata.lastPromptDismissedAt
                     }
                 });
 
@@ -432,10 +471,18 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     console.log('[Store] First time sync (no data) - auto triggering...');
                     await get().syncData(accountId, shopId, 'all');
                 } else {
-                    console.log('[Store] Data stale but exists - prompting user...');
-                    set(state => ({
-                        cacheMetadata: { ...state.cacheMetadata, showRefreshPrompt: true }
-                    }));
+                    // Only show prompt if not dismissed in the last 30 minutes
+                    const lastDismissed = get().cacheMetadata.lastPromptDismissedAt;
+                    const shouldShowPrompt = !lastDismissed || (Date.now() - lastDismissed > 30 * 60 * 1000);
+
+                    if (shouldShowPrompt) {
+                        console.log('[Store] Data stale but exists - prompting user...');
+                        set(state => ({
+                            cacheMetadata: { ...state.cacheMetadata, showRefreshPrompt: true }
+                        }));
+                    } else {
+                        console.log('[Store] Prompt recently dismissed, not showing again');
+                    }
                 }
             }
 
@@ -463,10 +510,24 @@ export const useShopStore = create<ShopState>((set, get) => ({
         lastFetchShopId: null
     }),
 
-    syncData: async (accountId: string, shopId: string, _syncType = 'all') => {
+    syncData: async (accountId: string, shopId: string, syncType: string = 'all') => {
         // Don't set isLoading to true for background syncs if we already have data
         const hasData = get().products.length > 0 || get().orders.length > 0;
         const isFirstSync = !hasData;
+
+        // Determine what to sync
+        const syncOrders = syncType === 'all' || syncType === 'orders';
+        const syncProducts = syncType === 'all' || syncType === 'products';
+        const syncSettlements = syncType === 'all' || syncType === 'finance' || syncType === 'settlements';
+
+        // Get appropriate initial message
+        const getInitialMessage = () => {
+            if (isFirstSync) return '🚀 First time syncing! This may take a few minutes...';
+            if (syncType === 'orders') return '📦 Syncing orders...';
+            if (syncType === 'products') return '🛍️ Syncing products...';
+            if (syncType === 'finance' || syncType === 'settlements') return '💰 Syncing financial data...';
+            return '📦 Syncing orders...';
+        };
 
         // Initialize sync progress
         set({
@@ -476,13 +537,11 @@ export const useShopStore = create<ShopState>((set, get) => ({
             syncProgress: {
                 isActive: true,
                 isFirstSync,
-                currentStep: 'orders',
-                message: isFirstSync
-                    ? '🚀 First time syncing! This may take a few minutes...'
-                    : '📦 Syncing orders...',
-                ordersComplete: false,
-                productsComplete: false,
-                settlementsComplete: false,
+                currentStep: syncOrders ? 'orders' : syncProducts ? 'products' : 'settlements',
+                message: getInitialMessage(),
+                ordersComplete: !syncOrders, // Mark as complete if not syncing
+                productsComplete: !syncProducts,
+                settlementsComplete: !syncSettlements,
                 ordersFetched: 0,
                 productsFetched: 0,
                 settlementsFetched: 0
@@ -490,62 +549,82 @@ export const useShopStore = create<ShopState>((set, get) => ({
         });
 
         try {
-            // Step 1: Sync Orders
-            const ordersResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shopId, syncType: 'orders' }),
-            });
-            const ordersData = await ordersResponse.json();
+            let ordersData: any = { stats: { orders: { fetched: 0 } } };
+            let productsData: any = { stats: { products: { fetched: 0 } } };
+            let settlementsData: any = { stats: { settlements: { fetched: 0 } } };
 
-            if (!get().syncProgress.isActive) return; // Stop if cancelled
+            // Step 1: Sync Orders (if requested)
+            if (syncOrders) {
+                const ordersResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopId, syncType: 'orders' }),
+                });
+                ordersData = await ordersResponse.json();
 
-            set(s => ({
-                syncProgress: {
-                    ...s.syncProgress,
-                    currentStep: 'products',
-                    message: '✅ Orders synced! 🛍️ Syncing products...',
-                    ordersComplete: true,
-                    ordersFetched: ordersData.stats?.orders?.fetched || 0
-                }
-            }));
+                if (!get().syncProgress.isActive) return; // Stop if cancelled
 
-            // Step 2: Sync Products
-            const productsResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shopId, syncType: 'products' }),
-            });
-            const productsData = await productsResponse.json();
+                set(s => ({
+                    syncProgress: {
+                        ...s.syncProgress,
+                        currentStep: syncProducts ? 'products' : syncSettlements ? 'settlements' : 'complete',
+                        message: syncProducts
+                            ? '✅ Orders synced! 🛍️ Syncing products...'
+                            : syncSettlements
+                                ? '✅ Orders synced! 💰 Syncing financial data...'
+                                : '✅ Orders synced successfully!',
+                        ordersComplete: true,
+                        ordersFetched: ordersData.stats?.orders?.fetched || 0
+                    }
+                }));
+                // Note: Don't refresh UI here - will do one combined refresh at the end
+            }
 
-            if (!get().syncProgress.isActive) return; // Stop if cancelled
+            // Step 2: Sync Products (if requested)
+            if (syncProducts) {
+                const productsResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopId, syncType: 'products' }),
+                });
+                productsData = await productsResponse.json();
 
-            set(s => ({
-                syncProgress: {
-                    ...s.syncProgress,
-                    currentStep: 'settlements',
-                    message: '✅ Products synced! 💰 Syncing financial data...',
-                    productsComplete: true,
-                    productsFetched: productsData.stats?.products?.fetched || 0
-                }
-            }));
+                if (!get().syncProgress.isActive) return; // Stop if cancelled
 
-            // Step 3: Sync Settlements/Finance
-            const settlementsResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shopId, syncType: 'settlements' }),
-            });
-            const settlementsData = await settlementsResponse.json();
+                set(s => ({
+                    syncProgress: {
+                        ...s.syncProgress,
+                        currentStep: syncSettlements ? 'settlements' : 'complete',
+                        message: syncSettlements
+                            ? '✅ Products synced! 💰 Syncing financial data...'
+                            : '✅ Products synced successfully!',
+                        productsComplete: true,
+                        productsFetched: productsData.stats?.products?.fetched || 0
+                    }
+                }));
+                // Note: Don't refresh UI here - will do one combined refresh at the end
+            }
 
-            if (!get().syncProgress.isActive) return; // Stop if cancelled
+            // Step 3: Sync Settlements/Finance (if requested)
+            if (syncSettlements) {
+                const settlementsResponse = await fetch(`${API_BASE_URL}/api/tiktok-shop/sync/${accountId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopId, syncType: 'settlements' }),
+                });
+                settlementsData = await settlementsResponse.json();
+
+                if (!get().syncProgress.isActive) return; // Stop if cancelled
+            }
 
             // Mark complete
             set(s => ({
                 syncProgress: {
                     ...s.syncProgress,
                     currentStep: 'complete',
-                    message: '✅ All data synced successfully!',
+                    message: syncType === 'all'
+                        ? '✅ All data synced successfully!'
+                        : `✅ ${syncType.charAt(0).toUpperCase() + syncType.slice(1)} synced successfully!`,
                     settlementsComplete: true,
                     settlementsFetched: settlementsData.stats?.settlements?.fetched || 0
                 },
@@ -560,19 +639,22 @@ export const useShopStore = create<ShopState>((set, get) => ({
                 }
             }));
 
-            // Final refresh
-            await get().fetchShopData(accountId, shopId, { forceRefresh: false, showCached: true, skipSyncCheck: true });
+            // Single refresh at end - silent, no loading overlay
+            // Set isLoading=false BEFORE fetch to prevent overlay
+            set({ isLoading: false });
 
-            // Clear progress after 1 seconds
-            setTimeout(() => {
-                set(s => ({
-                    syncProgress: {
-                        ...s.syncProgress,
-                        isActive: false,
-                        message: ''
-                    }
-                }));
-            }, 1000);
+            // Fetch fresh data from DB (but skip cache-status check to avoid triggering more syncs)
+            await get().fetchShopData(accountId, shopId, { forceRefresh: true, showCached: true, skipSyncCheck: true });
+
+            // Clear progress immediately after successful sync
+            set(s => ({
+                syncProgress: {
+                    ...s.syncProgress,
+                    isActive: false,
+                    message: ''
+                },
+                isLoading: false // Ensure no loading overlay
+            }));
 
         } catch (error: any) {
             console.error('Sync error:', error);
@@ -622,7 +704,8 @@ export const useShopStore = create<ShopState>((set, get) => ({
         set({
             cacheMetadata: {
                 ...get().cacheMetadata,
-                showRefreshPrompt: false
+                showRefreshPrompt: false,
+                lastPromptDismissedAt: Date.now() // Track when user dismissed to avoid re-prompting
             }
         });
     }

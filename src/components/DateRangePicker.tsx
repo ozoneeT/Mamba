@@ -33,6 +33,18 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const presets = [
     {
+      label: 'Last 24 Hours',
+      getValue: () => {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 1);
+        return {
+          startDate: start.toISOString().split('T')[0],
+          endDate: end.toISOString().split('T')[0]
+        };
+      }
+    },
+    {
       label: 'Last 7 Days',
       getValue: () => {
         const end = new Date();

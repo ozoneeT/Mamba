@@ -45,16 +45,14 @@ export function ProfitLossView({ account, shopId }: ProfitLossViewProps) {
   const finance = useShopStore(state => state.finance);
   const isLoading = useShopStore(state => state.isLoading);
   const syncData = useShopStore(state => state.syncData);
+  const cacheMetadata = useShopStore(state => state.cacheMetadata);
 
   const [plMetrics, setPlMetrics] = useState<ProfitLossMetrics | null>(null);
   const [calculating, setCalculating] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSync = async () => {
     if (!shopId) return;
-    setIsSyncing(true);
     await syncData(account.id, shopId, 'finance');
-    setIsSyncing(false);
   };
 
   useEffect(() => {
@@ -149,11 +147,11 @@ export function ProfitLossView({ account, shopId }: ProfitLossViewProps) {
         <div className="flex gap-3">
           <button
             onClick={handleSync}
-            disabled={isSyncing || isLoading}
+            disabled={cacheMetadata.isSyncing || isLoading}
             className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
           >
-            <RefreshCw size={20} className={isSyncing ? "animate-spin" : ""} />
-            <span>{isSyncing ? 'Syncing...' : 'Sync Finance'}</span>
+            <RefreshCw size={20} className={cacheMetadata.isSyncing ? "animate-spin" : ""} />
+            <span>{cacheMetadata.isSyncing ? 'Syncing...' : 'Sync Finance'}</span>
           </button>
           <DateRangePicker value={dateRange} onChange={setDateRange} />
         </div>

@@ -945,8 +945,9 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
                 .single();
 
             if (latestOrder?.create_time) {
-                // Use exact timestamp - only fetch orders CREATED after our latest
-                startTime = Math.floor(new Date(latestOrder.create_time).getTime() / 1000);
+                // Use timestamp + 1 second to EXCLUDE the order we already have
+                // API uses create_time_ge (>=), so without +1 it returns the same order again
+                startTime = Math.floor(new Date(latestOrder.create_time).getTime() / 1000) + 1;
                 console.log(`[${syncMode}] Fetching orders CREATED after ${latestOrder.create_time}...`);
             } else {
                 // Fallback to 7 days if no data found
@@ -959,9 +960,8 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
         let nextPageToken = '';
         let hasMore = true;
         let page = 1;
-        let hitExistingOrder = false;
 
-        // For incremental sync, get existing order IDs to detect when we can stop
+        // For incremental sync, load existing order IDs to implement Smart Stop Early
         let existingOrderIds = new Set<string>();
         if (!isFirstSync) {
             const { data: existingOrders } = await supabase
@@ -971,7 +971,7 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
             if (existingOrders) {
                 existingOrderIds = new Set(existingOrders.map(o => o.order_id));
             }
-            console.log(`[${syncMode}] Loaded ${existingOrderIds.size} existing order IDs for comparison`);
+            console.log(`[${syncMode}] Loaded ${existingOrderIds.size} existing order IDs for Smart Stop`);
         }
 
         while (hasMore) {
@@ -980,7 +980,7 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
                 page_size: '100', // Maximum allowed by API
                 create_time_from: startTime,
                 create_time_to: now,
-                // KEY OPTIMIZATION: Sort by create_time DESC to get NEWEST orders first
+                // Sort by create_time DESC to get NEWEST pages first
                 sort_field: 'create_time',
                 sort_order: 'DESC'
             };
@@ -1006,31 +1006,41 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
                 break;
             }
 
-            // For incremental sync: check if we hit orders that already exist in DB
-            // Since we're sorting DESC (newest first), once we hit existing orders, we can stop
-            if (!isFirstSync && existingOrderIds.size > 0) {
-                let newOrdersInPage = 0;
+            if (isFirstSync) {
+                // First sync: add ALL orders (no deduplication needed)
+                allOrders = [...allOrders, ...orders];
+                console.log(`[FULL] Added all ${orders.length} orders from page ${page}`);
+            } else {
+                // INCREMENTAL SYNC with Smart Stop Early:
+                // 1. Process ALL orders in the page
+                // 2. Add only orders with IDs NOT in our database
+                // 3. If ALL orders were new → continue to next page
+                // 4. If ANY order already existed → STOP (we've caught up)
+
+                let newInPage = 0;
+                let existingInPage = 0;
+
                 for (const order of orders) {
                     const orderId = order.id || order.order_id;
                     if (existingOrderIds.has(orderId)) {
-                        // Found an existing order - we've caught up!
-                        hitExistingOrder = true;
-                        console.log(`[${syncMode}] Hit existing order ${orderId}, we've caught up with our data!`);
-                        break;
+                        existingInPage++;
+                    } else {
+                        allOrders.push(order);
+                        newInPage++;
                     }
-                    allOrders.push(order);
-                    newOrdersInPage++;
                 }
-                console.log(`[${syncMode}] Found ${newOrdersInPage} new orders in page ${page}`);
 
-                if (hitExistingOrder) {
-                    console.log(`[${syncMode}] Stopping early - already have remaining orders in DB`);
+                console.log(`[${syncMode}] Page ${page}: ${newInPage} new orders, ${existingInPage} already in DB`);
+
+                // Smart Stop: If ANY order in this page already existed, we've caught up
+                if (existingInPage > 0) {
+                    console.log(`[${syncMode}] Found ${existingInPage} existing orders - we've caught up! Stopping.`);
                     hasMore = false;
                     break;
                 }
-            } else {
-                // First sync: add all orders (no duplicate checking needed)
-                allOrders = [...allOrders, ...orders];
+
+                // If ALL orders were new, there might be more new orders in the next page
+                console.log(`[${syncMode}] All ${newInPage} orders were new - checking next page...`);
             }
 
             // If no new token or same token, stop
@@ -1074,8 +1084,8 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
         const shopIds = allShops?.map(s => s.id) || [shop.id];
 
         // Batch upsert orders for all associated shop records
-        // Process in chunks of 100 to avoid request size limits
-        const chunkSize = 100;
+        // Process in smaller chunks (20) to avoid EPIPE/payload limits
+        const chunkSize = 20;
         for (let i = 0; i < uniqueOrders.length; i += chunkSize) {
             const chunk = uniqueOrders.slice(i, i + chunkSize);
 
@@ -1115,8 +1125,7 @@ async function syncOrders(shop: any, isFirstSync: boolean = true): Promise<{ fet
 
                 if (error) {
                     console.error(`Error upserting orders chunk (${chunk.length} orders):`, error);
-                    console.error(`First order ID in failed chunk: ${upsertData[0]?.order_id}`);
-                    // Continue with next chunk instead of stopping completely
+                    throw new Error(`Failed to upsert orders chunk: ${error.message}`);
                 }
             }
         }
@@ -1375,8 +1384,6 @@ async function syncSettlements(shop: any, isFirstSync: boolean = true): Promise<
         const now = Math.floor(Date.now() / 1000);
         let startTime: number;
 
-        // Defined here for scope access
-        let existingSettlementIds = new Set();
 
         if (isFirstSync) {
             // First sync: get last 30 days
@@ -1386,24 +1393,40 @@ async function syncSettlements(shop: any, isFirstSync: boolean = true): Promise<
             // Incremental: get latest settlement_time from DB
             const { data: latestSettlement } = await supabase
                 .from('shop_settlements')
-                .select('settlement_id')
+                .select('settlement_time')
                 .eq('shop_id', shop.id)
-                .order('settlement_time', { ascending: false });
+                .order('settlement_time', { ascending: false })
+                .limit(1)
+                .maybeSingle();
 
-            // We load existing IDs to stop early if we encounter them
-            existingSettlementIds = new Set(latestSettlement?.map(s => s.settlement_id) || []);
-            console.log(`[${syncMode}] Loaded ${existingSettlementIds.size} existing settlement IDs`);
-
-            // Start from 1 year ago just in case, or shorter if we want
-            // But since we have existing check, we can rely on that
-            startTime = now - (365 * 24 * 60 * 60);
+            if (latestSettlement && latestSettlement.settlement_time) {
+                // Fetch from last settlement time minus 1 day buffer
+                startTime = latestSettlement.settlement_time - (24 * 60 * 60);
+                console.log(`[${syncMode}] Fetching settlements after ${new Date(startTime * 1000).toISOString()} (with buffer)`);
+            } else {
+                // Fallback if no data found
+                startTime = now - (365 * 24 * 60 * 60);
+                console.log(`[${syncMode}] No prior settlements found, fetching last 1 year`);
+            }
         }
 
         let allSettlements: any[] = [];
         let page = 1;
         let hasMore = true;
         let nextPageToken = '';
-        let hitExisting = false;
+
+        // For incremental sync, load existing settlement IDs for Smart Stop
+        let existingSettlementIds = new Set<string>();
+        if (!isFirstSync) {
+            const { data: existingSettlements } = await supabase
+                .from('shop_settlements')
+                .select('settlement_id')
+                .eq('shop_id', shop.id);
+            if (existingSettlements) {
+                existingSettlementIds = new Set(existingSettlements.map(s => s.settlement_id));
+            }
+            console.log(`[${syncMode}] Loaded ${existingSettlementIds.size} existing settlement IDs for Smart Stop`);
+        }
 
         while (hasMore) {
             const params: any = {
@@ -1439,26 +1462,35 @@ async function syncSettlements(shop: any, isFirstSync: boolean = true): Promise<
                 break;
             }
 
-            // Check if we hit existing settlements
-            if (!isFirstSync) {
-                // Get existing IDs from DB for this shop 
-                // (Already loaded above as existingSettlementIds)
+            if (isFirstSync) {
+                // First sync: add ALL settlements
+                allSettlements = [...allSettlements, ...settlements];
+                console.log(`[FULL] Added all ${settlements.length} settlements from page ${page}`);
+            } else {
+                // INCREMENTAL SYNC with Smart Stop Early:
+                let newInPage = 0;
+                let existingInPage = 0;
 
                 for (const stmt of settlements) {
-                    if (existingSettlementIds.has(stmt.id)) {
-                        hitExisting = true;
-                        break;
+                    const stmtId = stmt.id || stmt.settlement_id;
+                    if (existingSettlementIds.has(stmtId)) {
+                        existingInPage++;
+                    } else {
+                        allSettlements.push(stmt);
+                        newInPage++;
                     }
-                    allSettlements.push(stmt);
                 }
 
-                if (hitExisting) {
-                    console.log(`[${syncMode}] Hit existing settlement, stopping early.`);
+                console.log(`[${syncMode}] Page ${page}: ${newInPage} new settlements, ${existingInPage} already in DB`);
+
+                // Smart Stop: If ANY settlement already existed, we've caught up
+                if (existingInPage > 0) {
+                    console.log(`[${syncMode}] Found ${existingInPage} existing settlements - we've caught up! Stopping.`);
                     hasMore = false;
                     break;
                 }
-            } else {
-                allSettlements = [...allSettlements, ...settlements];
+
+                console.log(`[${syncMode}] All ${newInPage} settlements were new - checking next page...`);
             }
 
             if (!response.next_page_token || response.next_page_token === nextPageToken) {

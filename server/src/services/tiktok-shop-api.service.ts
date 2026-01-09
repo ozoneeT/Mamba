@@ -418,11 +418,88 @@ export class TikTokShopApiService {
     /**
      * Search Orders
      * POST /order/202309/orders/search
+     * 
+     * Query params: page_size, sort_order, sort_field, page_token
+     * Body params: order_status, create_time_ge, create_time_lt, update_time_ge, update_time_lt
      */
     async searchOrders(accessToken: string, shopCipher: string, params: any): Promise<any> {
-        // Remove 'version' param if it exists, as it is now in the path
-        const { version, ...rest } = params;
-        return this.makeApiRequest('/order/202309/orders/search', accessToken, shopCipher, rest, 'POST');
+        const timestamp = Math.floor(Date.now() / 1000);
+        const path = '/order/202309/orders/search';
+
+        // Map legacy param names to correct API names
+        const create_time_ge = params.create_time_ge ?? params.create_time_from;
+        const create_time_lt = params.create_time_lt ?? params.create_time_to;
+
+        // === QUERY PARAMETERS ===
+        // These go in the URL as query params
+        const queryParams: Record<string, any> = {
+            app_key: this.config.appKey,
+            timestamp: timestamp.toString(),
+            shop_cipher: shopCipher,
+        };
+
+        // Add optional query params per TikTok docs
+        if (params.page_size) queryParams.page_size = String(params.page_size);
+        if (params.sort_order) queryParams.sort_order = params.sort_order;
+        if (params.sort_field) queryParams.sort_field = params.sort_field;
+        if (params.page_token) queryParams.page_token = params.page_token;
+        // page_number is for initial requests without page_token
+        if (params.page_number && !params.page_token) queryParams.page_number = String(params.page_number);
+
+        // === BODY PARAMETERS ===
+        // These go in the POST body as JSON
+        const bodyParams: Record<string, any> = {};
+
+        if (create_time_ge) bodyParams.create_time_ge = Number(create_time_ge);
+        if (create_time_lt) bodyParams.create_time_lt = Number(create_time_lt);
+        if (params.update_time_ge) bodyParams.update_time_ge = Number(params.update_time_ge);
+        if (params.update_time_lt) bodyParams.update_time_lt = Number(params.update_time_lt);
+        if (params.order_status) bodyParams.order_status = params.order_status;
+
+        // Generate signature using query params + body
+        const signature = this.generateSignature(path, queryParams, bodyParams);
+        queryParams.sign = signature;
+
+        const url = `${this.config.apiBase}${path}`;
+
+        const headers = {
+            'x-tts-access-token': accessToken,
+            'Content-Type': 'application/json',
+        };
+
+        console.log(`[TikTokApi] POST ${url}`);
+        console.log('[TikTokApi] Query Params:', JSON.stringify(queryParams, null, 2));
+        console.log('[TikTokApi] Body Params:', JSON.stringify(bodyParams, null, 2));
+
+        try {
+            const response = await axios.post(url, bodyParams, {
+                params: queryParams,
+                headers,
+            });
+
+            if (response.data.code !== 0) {
+                console.error(`TikTok API Error [${response.data.code}]: ${response.data.message}`);
+                throw new TikTokShopError(
+                    response.data.message,
+                    response.data.code,
+                    response.data.request_id,
+                    response.data.detail
+                );
+            }
+
+            return response.data.data;
+        } catch (error: any) {
+            if (error instanceof TikTokShopError) throw error;
+            if (error.response?.data) {
+                console.error('API Error Response:', JSON.stringify(error.response.data, null, 2));
+                throw new TikTokShopError(
+                    error.response.data.message || 'TikTok API request failed',
+                    error.response.data.code || 500,
+                    error.response.data.request_id
+                );
+            }
+            throw error;
+        }
     }
 
     /**

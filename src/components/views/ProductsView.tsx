@@ -11,20 +11,17 @@ interface ProductsViewProps {
 }
 
 export function ProductsView({ account, shopId }: ProductsViewProps) {
-    const { products, isLoading, fetchShopData, syncData } = useShopStore();
+    const { products, isLoading, syncData, cacheMetadata } = useShopStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-    const [isSyncing, setIsSyncing] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 50;
 
     const handleSync = async () => {
         if (!shopId) return;
-        setIsSyncing(true);
         await syncData(account.id, shopId, 'products');
-        setIsSyncing(false);
     };
 
     const filteredProducts = products.filter(product => {
@@ -54,11 +51,11 @@ export function ProductsView({ account, shopId }: ProductsViewProps) {
                 <div className="flex gap-3">
                     <button
                         onClick={handleSync}
-                        disabled={isSyncing || isLoading}
+                        disabled={cacheMetadata.isSyncing || isLoading}
                         className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
                     >
-                        <RefreshCw size={20} className={isSyncing ? "animate-spin" : ""} />
-                        <span>{isSyncing ? 'Syncing...' : 'Sync Products'}</span>
+                        <RefreshCw size={20} className={cacheMetadata.isSyncing ? "animate-spin" : ""} />
+                        <span>{cacheMetadata.isSyncing ? 'Syncing...' : 'Sync Products'}</span>
                     </button>
                     {/* Placeholder for Add Product if needed */}
                 </div>
