@@ -335,7 +335,8 @@ export const useShopStore = create<ShopState>((set, get) => ({
                     }
                 });
             }
-        } else if (forceRefresh) {
+        } else if (forceRefresh && !skipSyncCheck) {
+            // Only show loading overlay for manual refresh, NOT for post-sync updates
             set({ isLoading: true, error: null });
         }
 
@@ -617,43 +618,66 @@ export const useShopStore = create<ShopState>((set, get) => ({
                 if (!get().syncProgress.isActive) return; // Stop if cancelled
             }
 
-            // Mark complete
+            // Sync complete! Now refresh UI data
+            const currentShopId = shopId;
+
+            // Show "Updating display" while we fetch fresh data
             set(s => ({
                 syncProgress: {
                     ...s.syncProgress,
                     currentStep: 'complete',
-                    message: syncType === 'all'
-                        ? '✅ All data synced successfully!'
-                        : `✅ ${syncType.charAt(0).toUpperCase() + syncType.slice(1)} synced successfully!`,
+                    message: '🔄 Updating display...',
                     settlementsComplete: true,
                     settlementsFetched: settlementsData.stats?.settlements?.fetched || 0
                 },
-                cacheMetadata: {
-                    ...s.cacheMetadata,
-                    isFirstSync: ordersData.isFirstSync,
-                    lastSyncStats: {
-                        orders: ordersData.stats?.orders,
-                        products: productsData.stats?.products,
-                        settlements: settlementsData.stats?.settlements
-                    }
-                }
+                isLoading: false // No loading overlay
             }));
 
-            // Single refresh at end - silent, no loading overlay
-            // Set isLoading=false BEFORE fetch to prevent overlay
-            set({ isLoading: false });
+            // Fetch fresh data from DB (blocking - wait for it to complete)
+            await get().fetchShopData(accountId, shopId, {
+                forceRefresh: true,
+                showCached: true,
+                skipSyncCheck: true
+            });
 
-            // Fetch fresh data from DB (but skip cache-status check to avoid triggering more syncs)
-            await get().fetchShopData(accountId, shopId, { forceRefresh: true, showCached: true, skipSyncCheck: true });
+            // Data is now updated! Show sync complete message
+            set(s => {
+                // Clear memory cache for this shop
+                const newMemoryCache = { ...s.memoryCache };
+                delete newMemoryCache[currentShopId];
 
-            // Clear progress immediately after successful sync
+                return {
+                    syncProgress: {
+                        ...s.syncProgress,
+                        message: '✅ Sync complete!'
+                    },
+                    cacheMetadata: {
+                        ...s.cacheMetadata,
+                        isFirstSync: ordersData.isFirstSync,
+                        showRefreshPrompt: false,
+                        isStale: false,
+                        lastSyncStats: {
+                            orders: ordersData.stats?.orders,
+                            products: productsData.stats?.products,
+                            settlements: settlementsData.stats?.settlements
+                        },
+                        lastPromptDismissedAt: Date.now()
+                    },
+                    lastFetchTime: Date.now(),
+                    memoryCache: newMemoryCache,
+                    isLoading: false
+                };
+            });
+
+            // Brief pause to show "Sync complete!" message, then dismiss
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
             set(s => ({
                 syncProgress: {
                     ...s.syncProgress,
                     isActive: false,
                     message: ''
-                },
-                isLoading: false // Ensure no loading overlay
+                }
             }));
 
         } catch (error: any) {
